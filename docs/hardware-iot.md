@@ -55,7 +55,12 @@
 
 ---
 
-## 4. สถาปัตยกรรมการเชื่อมต่อเครือข่าย (Networking Architecture)
+## 4. สถาปัตยกรรมการเชื่อมต่อเครือข่ายและการล็อก IP แบบถาวร (Networking Architecture & Fixed IP)
+
+ระบบกำหนดและล็อก Static IP ให้กล้อง ESP32-S3 เป็น `192.168.137.65` และ Stream URL เป็น `http://192.168.137.65/stream` แบบถาวร เพื่อให้ระบบตรวจจับทำงานต่อเนื่องโดยไม่มีปัญหา IP เปลี่ยน:
+- **Firmware Level (`esp32_camera_capture.ino`):** ล็อก Static IP `192.168.137.65` ทั้งในโหมด Station (เชื่อมต่อ Wi-Fi Hotspot) และโหมด SoftAP Fallback หาก Wi-Fi หลุด พร้อมระบบ Reconnect อัตโนมัติใน loop ที่คง IP เดิมไว้เสมอ
+- **Frontend Level (`DetectionContext.jsx` & `DetectionPage.jsx`):** ล็อกการอ่านค่าและการจัดเก็บ LocalStorage ไว้ที่ `192.168.137.65` และ `http://192.168.137.65/stream` ป้องกันการเปลี่ยน IP
+- **Backend Level (`config.py` & `detection.py`):** ตั้งค่า `DEFAULT_ESP32_IP = "192.168.137.65"` พร้อม Fallback ปลอดภัยในทุก Endpoint
 
 เพื่อความยืดหยุ่นในการใช้งาน ระบบรองรับการเชื่อมต่อ 2 รูปแบบ:
 
@@ -98,3 +103,31 @@ flowchart TD
 2. หากไม่สำเร็จหรือเกิด Timeout ระบบจะสลับไปเชื่อมต่อกับ `/stream` โดยอัตโนมัติ
 3. อ่านไบต์ของสตรีมและตัดเฉพาะเฟรมภาพ JPEG แรกสุด (`0xFF 0xD8` ถึง `0xFF 0xD9`) นำไปส่งให้โมเดล YOLO วิเคราะห์ทันที
 4. ผลลัพธ์: ระบบ AI สามารถดึงภาพไปตรวจจับได้ตลอดเวลา 100% โดยบอร์ดไม่ค้างและสตรีมไม่หลุด
+
+---
+
+## 6. การแก้ปัญหาและตั้งค่าหน่วยความจำกล้อง (Camera PSRAM & Memory Troubleshooting)
+
+### ปัญหา: `cam_dma_config(509): frame buffer malloc failed` / Error `0xffffffff`
+```text
+E (1348) cam_hal: cam_dma_config(509): frame buffer malloc failed
+E (1349) cam_hal: cam_config(599): cam_dma_config failed
+E (1349) camera: Camera config failed with error 0xffffffff
+```
+
+#### สาเหตุหลัก:
+1. **ไม่ได้เปิดใช้งาน PSRAM ใน Arduino IDE**: ค่าเริ่มต้นของบอร์ด `ESP32S3 Dev Module` ใน Arduino IDE คือ `PSRAM: Disabled` เมื่อโค้ดร้องขอหน่วยความจำในโหมด `CAMERA_FB_IN_PSRAM` ตัวไดรเวอร์ `esp32-camera` จะพยายามจองหน่วยความจำภายนอก (MALLOC_CAP_SPIRAM) แต่ไม่พบบัส PSRAM จึงคืนค่า `NULL` และเกิดข้อผิดพลาดทันที
+2. **เลือกโหมด PSRAM ไม่ตรงกับฮาร์ดแวร์**: บอร์ด ESP32-S3 AI Camera ส่วนใหญ่ (เช่น DFRobot หรือ N16R8) ใช้ **OPI PSRAM** (Octal SPI) ขนาด 8MB หากตั้งค่าเป็น `QSPI PSRAM` หรือ `Disabled` ชิปจะไม่สามารถเข้าถึงหน่วยความจำได้
+3. **การจอง Frame Buffer คู่ (Dual Buffer) ใน Internal RAM**: หากไม่มี PSRAM ภายใน Internal DRAM จะมีพื้นที่ต่อเนื่องไม่เพียงพอสำหรับเก็บภาพ 2 เฟรมพร้อมกันที่ความละเอียดสูง
+
+#### วิธีการแก้ไข:
+1. **การตั้งค่าใน Arduino IDE**:
+   - ไปที่เมนู **Tools** > **PSRAM**
+   - เปลี่ยนจาก `Disabled` ให้เป็น **`OPI PSRAM`** (หรือเลือก `QSPI PSRAM` หากใช้บอร์ดรุ่น 2MB Quad SPI)
+   - ตรวจสอบว่า **Board** เลือกเป็น `ESP32S3 Dev Module`
+2. **ระบบ Dynamic Fallback ในเฟิร์มแวร์ (`esp32_camera_capture.ino`)**:
+   - เฟิร์มแวร์ได้รับการปรับปรุงให้ตรวจสอบ `psramFound()` แบบอัตโนมัติ
+   - **กรณีมี PSRAM**: ใช้งาน `CAMERA_FB_IN_PSRAM`, Dual Buffer (`fb_count = 2`), ความละเอียด `FRAMESIZE_VGA` (640x480) และ `jpeg_quality = 12` เพื่อความลื่นไหลสูงสุด
+   - **กรณีไม่มี PSRAM / ยังไม่ได้เปิดใน IDE**: สลับมาใช้ `CAMERA_FB_IN_DRAM`, Single Buffer (`fb_count = 1`), บีบอัดภาพเพิ่มขึ้นเพื่อความปลอดภัยของหน่วยความจำ
+   - **ระบบสำรองฉุกเฉิน (Emergency Fallback)**: หากไดรเวอร์ล้มเหลว จะลดความละเอียดลงเป็น `FRAMESIZE_QVGA` (320x240) ใน DRAM อัตโนมัติ ป้องกันไม่ให้บอร์ดเกิด Infinite Reboot Loop
+

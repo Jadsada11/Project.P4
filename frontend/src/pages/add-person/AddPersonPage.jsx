@@ -1,9 +1,8 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router";
 import {
   UserPlus,
   UploadCloud,
-  Camera,
   Trash2,
   AlertCircle,
   ArrowLeft,
@@ -11,28 +10,14 @@ import {
   Home,
   Package,
   ShieldAlert,
-  Video,
-  VideoOff,
-  RefreshCw,
-  FlipHorizontal,
   Star,
-  SlidersHorizontal,
-  Layers,
-  Wifi,
-  WifiOff,
-  Check,
+  ImagePlus,
   CheckCircle2,
-  ExternalLink,
-  Timer,
-  Maximize2,
-  Info,
+  FileImage,
 } from "lucide-react";
 import { Input, Textarea } from "../../components/common/Input";
 import Button from "../../components/common/Button";
-import Modal from "../../components/common/Modal";
-import { personsApi, detectionApi } from "../../services/api";
-
-const DEFAULT_ESP32_IP = "192.168.137.65";
+import { personsApi } from "../../services/api";
 
 export default function AddPersonPage() {
   const navigate = useNavigate();
@@ -48,41 +33,9 @@ export default function AddPersonPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
 
-  // ==========================================
-  // Embedded Camera Console State
-  // Default to "esp32" so ESP32-CAM is attached immediately
-  // ==========================================
-  const [activeSourceTab, setActiveSourceTab] = useState("esp32"); // "esp32" | "webcam" | "upload"
-  const [isModalOpen, setIsModalOpen] = useState(false); // Optional fullscreen modal
-
-  // ESP32-CAM Specific State
-  const [esp32Ip, setEsp32Ip] = useState(() => {
-    return localStorage.getItem("esp32_cam_ip") || DEFAULT_ESP32_IP;
-  });
-  const [isEditingIp, setIsEditingIp] = useState(false);
-  const [tempEsp32Ip, setTempEsp32Ip] = useState(esp32Ip);
-  const [esp32StreamStatus, setEsp32StreamStatus] = useState("connecting"); // "online" | "offline" | "connecting"
-  const [esp32Key, setEsp32Key] = useState(() => Date.now());
-  const [useProxyStream, setUseProxyStream] = useState(false);
-  const [isCapturingEsp32, setIsCapturingEsp32] = useState(false);
-
-  // Webcam Specific State
-  const [cameraActive, setCameraActive] = useState(false);
-  const [webcamError, setWebcamError] = useState("");
-  const [availableDevices, setAvailableDevices] = useState([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState("");
-  const [isMirrored, setIsMirrored] = useState(true);
-
-  // Capture Effects & Multi-Shot (Burst) State
-  const [shutterFlash, setShutterFlash] = useState(false);
-  const [countdown, setCountdown] = useState(null); // null | 3 | 2 | 1
-  const [isBurstMode, setIsBurstMode] = useState(false);
-  const [burstCount, setBurstCount] = useState({ current: 0, total: 0 });
-
-  const videoRef = useRef(null);
-  const modalVideoRef = useRef(null);
-  const streamRef = useRef(null);
-  const countdownIntervalRef = useRef(null);
+  // Drag & Drop State
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef(null);
 
   const categories = [
     {
@@ -113,23 +66,13 @@ export default function AddPersonPage() {
 
   const minRecommendedImages = 15;
 
-  // Helper: Convert Blob to Base64 Data URL
-  const blobToDataUrl = (blob) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  };
-
   // Helper: Add image to dataset state
-  const addImageToDataset = (dataUrl, source = "camera") => {
+  const addImageToDataset = useCallback((dataUrl, originalName = "") => {
     const newImg = {
       id: Math.random().toString(36).substring(2, 9),
-      name: `${source}_${Date.now()}.jpg`,
+      name: originalName || `upload_${Date.now()}.jpg`,
       url: dataUrl,
-      source: source,
+      source: "upload",
     };
     setImages((prev) => {
       const updated = [...prev, newImg];
@@ -138,23 +81,62 @@ export default function AddPersonPage() {
       }
       return updated;
     });
-    if (errors.images) {
-      setErrors((prev) => ({ ...prev, images: null }));
-    }
-  };
+    setErrors((prev) => (prev.images ? { ...prev, images: null } : prev));
+  }, [primaryImageId]);
 
-  // File Upload Handler (Base64 conversion)
-  const handleFileUpload = (e) => {
-    const files = Array.from(e.target.files || []);
+  // Process File List (Multi-file & Drag-and-drop)
+  const processFiles = useCallback((fileList) => {
+    const files = Array.from(fileList || []).filter((file) =>
+      file.type.startsWith("image/")
+    );
     if (files.length === 0) return;
 
     files.forEach((file) => {
       const reader = new FileReader();
-      reader.onload = (uploadEvent) => {
-        addImageToDataset(uploadEvent.target.result, "upload");
+      reader.onload = (e) => {
+        if (e.target?.result) {
+          addImageToDataset(e.target.result, file.name);
+        }
       };
       reader.readAsDataURL(file);
     });
+  }, [addImageToDataset]);
+
+  // File Input Change Handler
+  const handleFileInputChange = (e) => {
+    processFiles(e.target.files);
+    // Reset file input value so the same files can be re-selected if desired
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  // Drag & Drop Handlers
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDragging) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only deactivate if leaving the container itself
+    if (e.currentTarget.contains(e.relatedTarget)) return;
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer?.files) {
+      processFiles(e.dataTransfer.files);
+    }
   };
 
   const removeImage = (id) => {
@@ -171,263 +153,12 @@ export default function AddPersonPage() {
     setPrimaryImageId(id);
   };
 
-  const triggerShutterFlash = () => {
-    setShutterFlash(true);
-    setTimeout(() => setShutterFlash(false), 180);
-  };
-
-  // ==========================================
-  // Webcam Lifecycle Engine
-  // ==========================================
-  const stopWebcamStream = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) videoRef.current.srcObject = null;
-    if (modalVideoRef.current) modalVideoRef.current.srcObject = null;
-    setCameraActive(false);
-  }, []);
-
-  const startWebcamStream = useCallback(async (deviceId = "") => {
-    stopWebcamStream();
-    setWebcamError("");
-
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setWebcamError("เบราว์เซอร์นี้ไม่รองรับ Camera API หรือโปรโตคอลความปลอดภัย (HTTPS/localhost)");
-      return;
-    }
-
-    try {
-      const constraints = {
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" }),
-        },
-        audio: false,
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-
-      try {
-        const allDevices = await navigator.mediaDevices.enumerateDevices();
-        const videoInputs = allDevices.filter((d) => d.kind === "videoinput");
-        setAvailableDevices(videoInputs);
-      } catch (enumErr) {
-        console.warn("Could not enumerate camera devices:", enumErr);
-      }
-
-      setCameraActive(true);
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play().catch(console.warn);
-      }
-      if (modalVideoRef.current) {
-        modalVideoRef.current.srcObject = stream;
-        modalVideoRef.current.play().catch(console.warn);
-      }
-    } catch (err) {
-      console.error("Webcam access error:", err);
-      let msg = "ไม่สามารถเข้าถึงกล้องเว็บแคมได้ กรุณาตรวจสอบสิทธิ์การเข้าถึงกล้อง";
-      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-        msg = "คุณปฏิเสธการเข้าถึงกล้อง กรุณากดอนุญาตสิทธิ์ที่แถบ URL ของเบราว์เซอร์";
-      } else if (err.name === "NotFoundError") {
-        msg = "ไม่พบอุปกรณ์กล้องเว็บแคมที่เชื่อมต่อ";
-      }
-      setWebcamError(msg);
-      setCameraActive(false);
-    }
-  }, [stopWebcamStream]);
-
-  // Handle video element mounting
-  const handleVideoRef = useCallback((element) => {
-    videoRef.current = element;
-    if (element && streamRef.current) {
-      element.srcObject = streamRef.current;
-      element.play().catch(console.warn);
-    }
-  }, []);
-
-  const handleModalVideoRef = useCallback((element) => {
-    modalVideoRef.current = element;
-    if (element && streamRef.current) {
-      element.srcObject = streamRef.current;
-      element.play().catch(console.warn);
-    }
-  }, []);
-
-  // Manage webcam start/stop when switching tabs
-  useEffect(() => {
-    if (activeSourceTab === "webcam" || (isModalOpen && activeSourceTab === "webcam")) {
-      startWebcamStream(selectedDeviceId);
-    } else {
-      stopWebcamStream();
-    }
-    return () => {
-      stopWebcamStream();
-      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-    };
-  }, [activeSourceTab, selectedDeviceId, startWebcamStream, stopWebcamStream, isModalOpen]);
-
-  // Capture current webcam frame
-  const captureWebcamFrame = useCallback(() => {
-    const video = isModalOpen && modalVideoRef.current ? modalVideoRef.current : videoRef.current;
-    if (!video || !cameraActive) return null;
-
-    const width = video.videoWidth || 640;
-    const height = video.videoHeight || 480;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-
-    if (isMirrored) {
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
-    }
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    return canvas.toDataURL("image/jpeg", 0.92);
-  }, [cameraActive, isMirrored, isModalOpen]);
-
-  const handleCaptureWebcamSingle = () => {
-    const dataUrl = captureWebcamFrame();
-    if (!dataUrl) return;
-    triggerShutterFlash();
-    addImageToDataset(dataUrl, "webcam");
-  };
-
-  // Burst capture for webcam
-  const handleStartBurstCaptureWebcam = (totalShots = 3) => {
-    if (isBurstMode || countdown !== null) return;
-    setIsBurstMode(true);
-    setBurstCount({ current: 0, total: totalShots });
-
-    let currentShot = 0;
-    const takeNext = () => {
-      let count = 2;
-      setCountdown(count);
-
-      countdownIntervalRef.current = setInterval(() => {
-        count -= 1;
-        if (count > 0) {
-          setCountdown(count);
-        } else {
-          clearInterval(countdownIntervalRef.current);
-          setCountdown(null);
-
-          const dataUrl = captureWebcamFrame();
-          if (dataUrl) {
-            triggerShutterFlash();
-            currentShot += 1;
-            setBurstCount({ current: currentShot, total: totalShots });
-            addImageToDataset(dataUrl, "webcam");
-          }
-
-          if (currentShot < totalShots) {
-            setTimeout(takeNext, 700);
-          } else {
-            setIsBurstMode(false);
-          }
-        }
-      }, 700);
-    };
-
-    takeNext();
-  };
-
-  // ==========================================
-  // ESP32-CAM Engine (Direct + Proxy)
-  // ==========================================
-  const esp32StreamSrc = useProxyStream
-    ? detectionApi.getEsp32StreamUrl(esp32Ip)
-    : `http://${esp32Ip}/stream?t=${esp32Key}`;
-
-  const handleSaveEsp32Ip = (e) => {
-    if (e) e.preventDefault();
-    const cleanIp = tempEsp32Ip.trim().replace(/^https?:\/\//, "").split("/")[0] || DEFAULT_ESP32_IP;
-    setEsp32Ip(cleanIp);
-    localStorage.setItem("esp32_cam_ip", cleanIp);
-    setEsp32StreamStatus("connecting");
-    setUseProxyStream(false);
-    setEsp32Key(Date.now());
-    setIsEditingIp(false);
-  };
-
-  const handleStreamError = () => {
-    if (!useProxyStream) {
-      console.warn("Direct ESP32 stream failed, switching to Backend Proxy stream...");
-      setUseProxyStream(true);
-      setEsp32StreamStatus("connecting");
-    } else {
-      setEsp32StreamStatus("offline");
-    }
-  };
-
-  const handleCaptureEsp32 = async () => {
-    setIsCapturingEsp32(true);
-    try {
-      let dataUrl = null;
-
-      // 1. Try direct fetch
-      if (!useProxyStream) {
-        try {
-          const directUrl = `http://${esp32Ip}/capture?t=${Date.now()}`;
-          const resp = await fetch(directUrl, { mode: "cors", cache: "no-cache" });
-          if (resp.ok) {
-            const blob = await resp.blob();
-            dataUrl = await blobToDataUrl(blob);
-          }
-        } catch (directErr) {
-          console.warn("Direct ESP32 capture failed, using backend proxy:", directErr);
-        }
-      }
-
-      // 2. Fallback to Backend Proxy snapshot
-      if (!dataUrl) {
-        const blob = await detectionApi.fetchEsp32SnapshotBlob(esp32Ip);
-        dataUrl = await blobToDataUrl(blob);
-      }
-
-      if (dataUrl) {
-        triggerShutterFlash();
-        addImageToDataset(dataUrl, "esp32");
-      }
-    } catch (err) {
-      console.error("ESP32 snapshot capture error:", err);
-    } finally {
-      setIsCapturingEsp32(false);
-    }
-  };
-
-  // Burst capture for ESP32 (3 shots with 1s interval)
-  const handleStartBurstCaptureEsp32 = async (totalShots = 3) => {
-    if (isBurstMode) return;
-    setIsBurstMode(true);
-    setBurstCount({ current: 0, total: totalShots });
-
-    for (let i = 1; i <= totalShots; i++) {
-      setBurstCount({ current: i, total: totalShots });
-      await handleCaptureEsp32();
-      if (i < totalShots) {
-        await new Promise((r) => setTimeout(r, 900));
-      }
-    }
-    setIsBurstMode(false);
-  };
-
-  // ==========================================
   // Form Submit Handler
-  // ==========================================
   const handleSubmit = async (e) => {
     e.preventDefault();
     const newErrors = {};
     if (!fullName.trim()) newErrors.fullName = "กรุณากรอกชื่อ-นามสกุล";
-    if (images.length === 0) newErrors.images = "กรุณาถ่ายภาพหรืออัปโหลดรูปภาพใบหน้าอย่างน้อย 1 รูป";
+    if (images.length === 0) newErrors.images = "กรุณาอัปโหลดรูปภาพใบหน้าอย่างน้อย 1 รูป";
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -490,7 +221,7 @@ export default function AddPersonPage() {
             ลงทะเบียนบุคคลใหม่ (Register Identity)
           </h1>
           <p className="text-xs sm:text-sm text-[#6b6b6b]">
-            เชื่อมต่อกล้อง IoT ESP32-CAM และเว็บแคมเพื่อเก็บชุดข้อมูลใบหน้าสำหรับโมเดล YOLOv8
+            อัปโหลดชุดรูปภาพใบหน้าสำหรับสกัดเวกเตอร์และเทรนโมเดล AI จดจำบุคคล
           </p>
         </div>
       </div>
@@ -580,21 +311,19 @@ export default function AddPersonPage() {
           />
         </div>
 
-        {/* =================================================================== */}
-        {/* Section 2: Interactive In-Page Camera Console (ESP32-CAM + Webcam) */}
-        {/* =================================================================== */}
+        {/* Section 2: AI Face Dataset File Upload */}
         <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#e8e0d5] shadow-xs flex flex-col gap-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#e8e0d5]">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-[#e0f2f1] flex items-center justify-center text-[#26a69a]">
-                <Camera className="w-4 h-4" />
+                <UploadCloud className="w-4 h-4" />
               </div>
               <div>
                 <h3 className="text-base font-bold text-[#1a1a1a]">
-                  2. กล้องถ่ายภาพใบหน้าสด & ชุดข้อมูล ({images.length} รูป)
+                  2. อัปโหลดรูปภาพใบหน้าสำหรับเทรน AI ({images.length} รูป)
                 </h3>
                 <span className="text-xs text-[#6b6b6b]">
-                  สตรีมสดจากบอร์ด ESP32-S3 AI Camera หรือเว็บแคมในเครื่อง
+                  อัปโหลดไฟล์รูปภาพใบหน้า (JPG, PNG, WEBP) สำหรับสกัดเวกเตอร์จำแนกบุคคล
                 </span>
               </div>
             </div>
@@ -624,445 +353,109 @@ export default function AddPersonPage() {
                   คำแนะนำสำหรับการเทรนใบหน้าให้ได้ผลลัพธ์แม่นยำสูงสุด (AI Dataset Quality)
                 </strong>
               </div>
-              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${
-                images.length === 0
-                  ? "bg-rose-50 text-rose-700 border-rose-200"
-                  : images.length < 3
-                  ? "bg-amber-50 text-amber-700 border-amber-200"
-                  : images.length < 6
-                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                  : "bg-emerald-100 text-emerald-800 border-emerald-300 font-extrabold"
-              }`}>
+              <span
+                className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                  images.length === 0
+                    ? "bg-rose-50 text-rose-700 border-rose-200"
+                    : images.length < 3
+                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                    : images.length < 6
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    : "bg-emerald-100 text-emerald-800 border-emerald-300 font-extrabold"
+                }`}
+              >
                 {images.length === 0
                   ? "ยังไม่มีภาพถ่าย"
                   : images.length < 3
-                  ? "ความพร้อมพื้นฐาน (ควรถ่ายเพิ่ม)"
+                  ? "ความพร้อมพื้นฐาน (ควรอัปโหลดเพิ่ม)"
                   : images.length < 6
-                  ? "ความพร้อมดีเยี่ยม (แนะนำ)"
+                  ? "ความพร้อมดีเยี่ยม (แนะนำ 3-5 รูปขึ้นไป)"
                   : "ความแม่นยำระดับสูงสุด"}
               </span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-[#6b6b6b] pt-1 border-t border-[#f0e4d7]/70">
               <div className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#e65100]" />
-                <span><strong>มุมที่ 1:</strong> หน้าตรง ไม่เอียงหน้า</span>
+                <span>
+                  <strong>มุมที่ 1:</strong> หน้าตรง ไม่เอียงหน้า
+                </span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#e65100]" />
-                <span><strong>มุมที่ 2:</strong> หันซ้าย-ขวาเล็กน้อย (~15°)</span>
+                <span>
+                  <strong>มุมที่ 2:</strong> หันซ้าย-ขวาเล็กน้อย (~15°)
+                </span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#e65100]" />
-                <span><strong>มุมที่ 3:</strong> ยิ้ม หรือสภาพแสงจริง</span>
+                <span>
+                  <strong>มุมที่ 3:</strong> สภาพแสงจริง และการแสดงสีหน้า
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Source Tabs Header */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-[#f7f1e9] border border-[#e8e0d5]">
-              <button
-                type="button"
-                onClick={() => setActiveSourceTab("esp32")}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeSourceTab === "esp32"
-                    ? "bg-[#e65100] text-white shadow-xs"
-                    : "text-[#6b6b6b] hover:text-[#1a1a1a]"
-                }`}
-              >
-                <Wifi className="w-4 h-4" />
-                กล้อง IoT (ESP32-CAM)
-              </button>
+          {/* Interactive Drag & Drop File Upload Area */}
+          <div
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={`relative rounded-3xl p-8 sm:p-10 border-2 border-dashed transition-all cursor-pointer flex flex-col items-center justify-center text-center gap-4 select-none ${
+              isDragging
+                ? "border-[#e65100] bg-[#fff3e0]/80 scale-[1.01] shadow-md"
+                : "border-[#e8e0d5] hover:border-[#e8b48a] bg-[#f7f1e9]/40 hover:bg-[#f7f1e9]/80"
+            }`}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*"
+              onChange={handleFileInputChange}
+              className="sr-only"
+            />
 
-              <button
-                type="button"
-                onClick={() => setActiveSourceTab("webcam")}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeSourceTab === "webcam"
-                    ? "bg-[#1a1a1a] text-white shadow-xs"
-                    : "text-[#6b6b6b] hover:text-[#1a1a1a]"
-                }`}
-              >
-                <Video className="w-4 h-4" />
-                กล้องเว็บแคม (Webcam)
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveSourceTab("upload")}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeSourceTab === "upload"
-                    ? "bg-[#1a1a1a] text-white shadow-xs"
-                    : "text-[#6b6b6b] hover:text-[#1a1a1a]"
-                }`}
-              >
-                <UploadCloud className="w-4 h-4" />
-                อัปโหลดไฟล์
-              </button>
+            <div
+              className={`w-16 h-16 rounded-3xl flex items-center justify-center transition-all duration-300 shadow-xs ${
+                isDragging
+                  ? "bg-[#e65100] text-white scale-110"
+                  : "bg-white border border-[#e8e0d5] text-[#6b6b6b] group-hover:text-[#e8b48a]"
+              }`}
+            >
+              {isDragging ? (
+                <FileImage className="w-8 h-8 animate-bounce" />
+              ) : (
+                <UploadCloud className="w-8 h-8" />
+              )}
             </div>
 
-            {/* Expand Viewport Button */}
-            {activeSourceTab !== "upload" && (
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white border border-[#e8e0d5] text-[#6b6b6b] hover:text-[#1a1a1a] hover:border-[#e8b48a] shadow-2xs cursor-pointer transition-all"
-                title="ขยายมุมมองกล้องเต็มจอ"
-              >
-                <Maximize2 className="w-3.5 h-3.5" />
-                <span>ขยายมุมมอง</span>
-              </button>
-            )}
-          </div>
-
-          {/* ======================================== */}
-          {/* TAB 1: EMBEDDED ESP32-CAM LIVE STREAM    */}
-          {/* ======================================== */}
-          {activeSourceTab === "esp32" && (
-            <div className="flex flex-col gap-4">
-              {/* ESP32 IP & Connection Status Toolbar */}
-              <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-2xl bg-[#f7f1e9]/60 border border-[#e8e0d5]">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-[#e65100]" />
-                  <span className="text-xs font-bold text-[#1a1a1a]">
-                    ESP32-S3 Node:
-                  </span>
-                  {!isEditingIp ? (
-                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-white border border-[#e8e0d5] text-[#1a1a1a]">
-                      {esp32Ip}
-                    </span>
-                  ) : (
-                    <form onSubmit={handleSaveEsp32Ip} className="flex items-center gap-1.5">
-                      <input
-                        type="text"
-                        value={tempEsp32Ip}
-                        onChange={(e) => setTempEsp32Ip(e.target.value)}
-                        placeholder="192.168.137.65"
-                        className="font-mono text-xs px-2 py-1 rounded-lg bg-white border border-[#e8b48a] outline-none w-36"
-                      />
-                      <button
-                        type="submit"
-                        className="px-2.5 py-1 text-xs font-bold rounded-lg bg-[#2e7d32] text-white cursor-pointer"
-                      >
-                        บันทึก
-                      </button>
-                    </form>
-                  )}
-                  {!isEditingIp && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTempEsp32Ip(esp32Ip);
-                        setIsEditingIp(true);
-                      }}
-                      className="text-[11px] text-[#e8b48a] hover:underline font-semibold cursor-pointer"
-                    >
-                      เปลี่ยน IP
-                    </button>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {esp32StreamStatus === "online" ? (
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-[#e8f5e9] text-[#2e7d32] px-2.5 py-1 rounded-lg border border-[#a5d6a7]">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#2e7d32] animate-ping" />
-                      LIVE FEED
-                    </span>
-                  ) : esp32StreamStatus === "connecting" ? (
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-[#e3f2fd] text-[#1565c0] px-2.5 py-1 rounded-lg border border-[#bbdefb]">
-                      <RefreshCw className="w-3 h-3 animate-spin" />
-                      CONNECTING...
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-[#ffebee] text-[#c62828] px-2.5 py-1 rounded-lg border border-[#ffcdd2]">
-                      OFFLINE
-                    </span>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEsp32StreamStatus("connecting");
-                      setUseProxyStream(false);
-                      setEsp32Key(Date.now());
-                    }}
-                    title="รีเฟรชการเชื่อมต่อสตรีม"
-                    className="p-1 rounded-lg bg-white border border-[#e8e0d5] text-[#6b6b6b] hover:text-[#1a1a1a] cursor-pointer"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Embedded Live Video Viewport */}
-              <div className="relative rounded-3xl overflow-hidden bg-black aspect-16/10 sm:aspect-16/9 flex items-center justify-center border border-[#e8e0d5] shadow-xs group">
-                <img
-                  key={`inline-esp32-${esp32Ip}-${esp32Key}-${useProxyStream}`}
-                  src={esp32StreamSrc}
-                  alt="ESP32-CAM Live MJPEG Stream"
-                  className={`w-full h-full object-cover transition-opacity duration-300 ${
-                    esp32StreamStatus === "offline" ? "opacity-20" : "opacity-100"
-                  }`}
-                  onLoad={() => setEsp32StreamStatus("online")}
-                  onError={handleStreamError}
-                />
-
-                {/* Shutter Flash Animation */}
-                {shutterFlash && (
-                  <div className="absolute inset-0 bg-white opacity-80 pointer-events-none z-30 transition-opacity duration-150" />
-                )}
-
-                {/* Burst Mode Status Banner */}
-                {isBurstMode && (
-                  <div className="absolute top-4 left-4 bg-black/75 backdrop-blur-xs text-white text-xs font-bold px-3.5 py-1.5 rounded-xl border border-white/20 z-20 flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-                    <span>กำลังถ่ายภาพต่อเนื่อง ({burstCount.current}/{burstCount.total})</span>
-                  </div>
-                )}
-
-                {/* Offline Fallback State */}
-                {esp32StreamStatus === "offline" && (
-                  <div className="absolute inset-0 bg-neutral-900/92 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center z-20">
-                    <div className="w-12 h-12 rounded-2xl bg-[#c62828]/15 border border-[#c62828]/30 flex items-center justify-center mb-2">
-                      <WifiOff className="w-6 h-6 text-[#ef5350]" />
-                    </div>
-                    <span className="text-sm font-bold text-white mb-1">
-                      ไม่สามารถเชื่อมต่อกล้อง ESP32-CAM ได้ ({esp32Ip})
-                    </span>
-                    <span className="text-xs text-neutral-300 max-w-sm mb-4 leading-relaxed">
-                      ตรวจสอบว่าบอร์ดเปิดใช้งานและเชื่อมต่อ Wi-Fi แล้ว หรือสามารถกดถ่ายภาพ Snapshot ผ่าน Backend Proxy ได้ทันที
-                    </span>
-                    <div className="flex flex-wrap items-center justify-center gap-2">
-                      <Button
-                        type="button"
-                        variant="primary"
-                        size="sm"
-                        onClick={() => {
-                          setEsp32StreamStatus("connecting");
-                          setUseProxyStream(true);
-                          setEsp32Key(Date.now());
-                        }}
-                        icon={RefreshCw}
-                      >
-                        สตรีมผ่าน Backend Proxy
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        onClick={handleCaptureEsp32}
-                        icon={Camera}
-                      >
-                        ดึง Snapshot ตอนนี้
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Action Buttons: Single Snapshot + Burst Mode */}
-              <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-[#f7f1e9]/60 border border-[#e8e0d5]">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-[#6b6b6b]">
-                    สตรีมสดจากบอร์ด DFRobot ESP32-S3 (OV3660)
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => handleStartBurstCaptureEsp32(3)}
-                    disabled={isCapturingEsp32 || isBurstMode}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-[#fff3e0] text-[#e65100] border border-[#ffb74d] hover:bg-[#ffe0b2] disabled:opacity-50 cursor-pointer transition-colors shadow-2xs"
-                  >
-                    <Layers className="w-3.5 h-3.5" />
-                    ถ่ายต่อเนื่อง 3 รูป
-                  </button>
-
-                  <Button
-                    type="button"
-                    variant="primary"
-                    size="md"
-                    onClick={handleCaptureEsp32}
-                    disabled={isCapturingEsp32 || isBurstMode}
-                    icon={Camera}
-                    className="bg-[#e65100] hover:bg-[#bf360c] text-white border-none shadow-sm"
-                  >
-                    {isCapturingEsp32 ? "กำลังบันทึกภาพ..." : "ถ่ายภาพจาก ESP32 (Snapshot)"}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ======================================== */}
-          {/* TAB 2: EMBEDDED WEBCAM LIVE VIDEO        */}
-          {/* ======================================== */}
-          {activeSourceTab === "webcam" && (
-            <div className="flex flex-col gap-4">
-              {/* Webcam Controls Toolbar */}
-              <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-2xl bg-[#f7f1e9]/60 border border-[#e8e0d5]">
-                <div className="flex items-center gap-2">
-                  {availableDevices.length > 1 && (
-                    <select
-                      value={selectedDeviceId}
-                      onChange={(e) => setSelectedDeviceId(e.target.value)}
-                      className="bg-white border border-[#e8e0d5] text-xs font-semibold text-[#1a1a1a] rounded-xl px-2.5 py-1 outline-none cursor-pointer hover:border-[#e8b48a]"
-                    >
-                      {availableDevices.map((dev, i) => (
-                        <option key={dev.deviceId || i} value={dev.deviceId}>
-                          {dev.label || `กล้อง ${i + 1}`}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => setIsMirrored(!isMirrored)}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                      isMirrored
-                        ? "bg-[#e8f5e9] text-[#2e7d32] border-[#a5d6a7]"
-                        : "bg-white text-[#6b6b6b] border-[#e8e0d5]"
-                    }`}
-                    title="กลับด้านภาพแนวนอน (Mirror)"
-                  >
-                    <FlipHorizontal className="w-3.5 h-3.5" />
-                    <span>Mirror {isMirrored ? "เปิด" : "ปิด"}</span>
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#2e7d32]">
-                    <span className="w-2 h-2 rounded-full bg-[#2e7d32] animate-pulse" />
-                    กล้องพร้อมทำงาน
-                  </span>
-                </div>
-              </div>
-
-              {/* Embedded Video Viewport */}
-              <div className="relative rounded-3xl overflow-hidden bg-black aspect-16/10 sm:aspect-16/9 flex items-center justify-center border border-[#e8e0d5] shadow-xs">
-                <video
-                  ref={handleVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className={`w-full h-full object-cover transition-transform duration-200 ${
-                    isMirrored ? "scale-x-[-1]" : ""
-                  } ${cameraActive ? "block" : "hidden"}`}
-                />
-
-                {/* Shutter Flash Animation */}
-                {shutterFlash && (
-                  <div className="absolute inset-0 bg-white opacity-80 pointer-events-none z-30 transition-opacity duration-150" />
-                )}
-
-                {/* Countdown Overlay */}
-                {countdown !== null && (
-                  <div className="absolute inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-40 animate-in zoom-in-75 duration-200">
-                    <span className="text-7xl font-black text-white drop-shadow-md font-mono animate-pulse">
-                      {countdown}
-                    </span>
-                  </div>
-                )}
-
-                {/* Burst Mode Status Banner */}
-                {isBurstMode && (
-                  <div className="absolute top-4 left-4 bg-black/75 backdrop-blur-xs text-white text-xs font-bold px-3.5 py-1.5 rounded-xl border border-white/20 z-20 flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-                    <span>กำลังถ่ายต่อเนื่อง ({burstCount.current}/{burstCount.total})</span>
-                  </div>
-                )}
-
-                {!cameraActive && (
-                  <div className="p-6 text-center text-white flex flex-col items-center gap-3">
-                    <Camera className="w-12 h-12 text-[#f5c9a8]" />
-                    <span className="text-xs font-medium text-neutral-300 max-w-sm">
-                      {webcamError || "กำลังเชื่อมต่อกับกล้องเว็บแคม..."}
-                    </span>
-                    {webcamError && (
-                      <Button
-                        type="button"
-                        variant="primary"
-                        size="sm"
-                        icon={RefreshCw}
-                        onClick={() => startWebcamStream(selectedDeviceId)}
-                      >
-                        ลองใหม่อีกครั้ง
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-[#f7f1e9]/60 border border-[#e8e0d5]">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-[#6b6b6b]">โหมดถ่ายภาพ:</span>
-                  <button
-                    type="button"
-                    onClick={() => handleStartBurstCaptureWebcam(3)}
-                    disabled={!cameraActive || isBurstMode}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-[#fff3e0] text-[#e65100] border border-[#ffb74d] hover:bg-[#ffe0b2] disabled:opacity-50 cursor-pointer transition-colors shadow-2xs"
-                  >
-                    <Layers className="w-3.5 h-3.5" />
-                    ถ่ายต่อเนื่อง 3 รูป
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleStartBurstCaptureWebcam(5)}
-                    disabled={!cameraActive || isBurstMode}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-[#e3f2fd] text-[#1565c0] border border-[#90caf9] hover:bg-[#bbdefb] disabled:opacity-50 cursor-pointer transition-colors shadow-2xs"
-                  >
-                    <Layers className="w-3.5 h-3.5" />
-                    ถ่ายต่อเนื่อง 5 รูป
-                  </button>
-                </div>
-
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="md"
-                  onClick={handleCaptureWebcamSingle}
-                  disabled={!cameraActive || isBurstMode}
-                  icon={Camera}
-                  className="bg-[#2e7d32] hover:bg-[#1b5e20] text-white border-none shadow-sm"
-                >
-                  ถ่ายภาพ (Single Shot)
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* ======================================== */}
-          {/* TAB 3: FILE DRAG & DROP UPLOAD           */}
-          {/* ======================================== */}
-          {activeSourceTab === "upload" && (
-            <label className="border-2 border-dashed border-[#e8e0d5] hover:border-[#e8b48a] rounded-3xl p-8 flex flex-col items-center justify-center gap-4 bg-[#f7f1e9]/40 hover:bg-[#f7f1e9] transition-all cursor-pointer group text-center">
-              <input
-                type="file"
-                multiple
-                accept="image/*"
-                onChange={handleFileUpload}
-                className="sr-only"
-              />
-              <div className="w-14 h-14 rounded-2xl bg-white border border-[#e8e0d5] flex items-center justify-center text-[#6b6b6b] group-hover:text-[#e8b48a] group-hover:scale-105 transition-all shadow-xs">
-                <UploadCloud className="w-7 h-7" />
-              </div>
-              <div>
-                <span className="text-sm font-bold text-[#1a1a1a] block">
-                  คลิกเพื่อเลือกไฟล์ หรือลากรูปภาพมาวางที่นี่
-                </span>
-                <span className="text-xs text-[#6b6b6b] block mt-1">
-                  รองรับ JPG, PNG, WEBP (เลือกได้พร้อมกันหลายไฟล์)
-                </span>
-              </div>
-              <span className="text-xs font-bold text-[#1a1a1a] px-4 py-2 rounded-xl bg-white border border-[#e8e0d5] group-hover:border-[#e8b48a] transition-colors shadow-2xs">
-                เลือกไฟล์จากคอมพิวเตอร์
+            <div className="flex flex-col gap-1 max-w-md">
+              <span className="text-sm sm:text-base font-bold text-[#1a1a1a]">
+                {isDragging
+                  ? "ปล่อยรูปภาพที่นี่เพื่ออัปโหลดทันที"
+                  : "ลากและวางรูปภาพใบหน้า หรือคลิกเพื่อเลือกไฟล์"}
               </span>
-            </label>
-          )}
+              <span className="text-xs text-[#6b6b6b]">
+                รองรับไฟล์ภาพ JPG, JPEG, PNG, WEBP (สามารถเลือกพร้อมกันได้หลายไฟล์)
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  fileInputRef.current?.click();
+                }}
+                className="inline-flex items-center gap-2 text-xs font-bold text-[#1a1a1a] px-4 py-2 rounded-xl bg-white border border-[#e8e0d5] hover:border-[#e8b48a] hover:bg-[#fcfaf7] transition-all shadow-2xs cursor-pointer"
+              >
+                <ImagePlus className="w-4 h-4 text-[#e65100]" />
+                <span>เลือกไฟล์จากคอมพิวเตอร์</span>
+              </button>
+            </div>
+          </div>
 
           {errors.images && (
             <div className="text-xs text-[#c62828] font-semibold flex items-center gap-1.5 p-3 rounded-xl bg-[#ffebee] border border-[#ffcdd2]">
@@ -1071,9 +464,7 @@ export default function AddPersonPage() {
             </div>
           )}
 
-          {/* ========================================================= */}
-          {/* Captured / Uploaded Dataset Thumbnails Gallery            */}
-          {/* ========================================================= */}
+          {/* Uploaded Dataset Thumbnails Gallery */}
           {images.length > 0 && (
             <div className="flex flex-col gap-3 pt-3 border-t border-[#e8e0d5]">
               <div className="flex items-center justify-between">
@@ -1096,7 +487,8 @@ export default function AddPersonPage() {
 
               <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-3">
                 {images.map((img, idx) => {
-                  const isPrimary = (primaryImageId === img.id) || (!primaryImageId && idx === 0);
+                  const isPrimary =
+                    primaryImageId === img.id || (!primaryImageId && idx === 0);
                   return (
                     <div
                       key={img.id}
@@ -1114,16 +506,12 @@ export default function AddPersonPage() {
 
                       {/* Primary Avatar Star Badge */}
                       {isPrimary && (
-                        <div className="absolute top-1.5 left-1.5 bg-[#f9a825] text-white p-1 rounded-lg shadow-sm">
+                        <div
+                          className="absolute top-1.5 left-1.5 bg-[#f9a825] text-white p-1 rounded-lg shadow-sm"
+                          title="รูปโปรไฟล์หลัก"
+                        >
                           <Star className="w-3 h-3 fill-current" />
                         </div>
-                      )}
-
-                      {/* Source tag */}
-                      {img.source && (
-                        <span className="absolute bottom-1 left-1 bg-black/60 backdrop-blur-xs text-[9px] text-white font-mono px-1 rounded">
-                          {img.source === "webcam" ? "CAM" : img.source === "esp32" ? "IoT" : "FILE"}
-                        </span>
                       )}
 
                       {/* Hover Actions: Star & Delete */}
@@ -1138,7 +526,11 @@ export default function AddPersonPage() {
                               : "bg-white/80 text-[#1a1a1a] hover:bg-white"
                           }`}
                         >
-                          <Star className={`w-3.5 h-3.5 ${isPrimary ? "fill-current" : ""}`} />
+                          <Star
+                            className={`w-3.5 h-3.5 ${
+                              isPrimary ? "fill-current" : ""
+                            }`}
+                          />
                         </button>
                         <button
                           type="button"
@@ -1168,7 +560,9 @@ export default function AddPersonPage() {
                 พร้อมเทรนใบหน้าเข้าสู่ระบบ AI จดจำบุคคล
               </span>
               <p className="text-[#388e3c] leading-relaxed">
-                ระบบจะนำภาพถ่ายทั้งหมด {images.length} ภาพไปสกัด 576-dim Face Embeddings และคำนวณเวกเตอร์เฉลี่ย เพื่อให้ระบบตรวจจับ YOLO จดจำ {fullName || "บุคคลนี้"} และส่งการแจ้งเตือนระบุชื่ออัตโนมัติ
+                ระบบจะนำภาพถ่ายทั้งหมด {images.length} ภาพไปสกัด 576-dim Face
+                Embeddings และคำนวณเวกเตอร์เฉลี่ย เพื่อให้ระบบตรวจจับ YOLO จดจำ{" "}
+                {fullName || "บุคคลนี้"} และส่งการแจ้งเตือนระบุชื่ออัตโนมัติ
               </p>
             </div>
           </div>
@@ -1192,71 +586,12 @@ export default function AddPersonPage() {
             disabled={isSubmitting}
             icon={Sparkles}
           >
-            {isSubmitting ? "กำลังสกัดเวกเตอร์ & เทรนโมเดล..." : "บันทึกและเทรนใบหน้าบุคคล"}
+            {isSubmitting
+              ? "กำลังสกัดเวกเตอร์ & เทรนโมเดล..."
+              : "บันทึกและเทรนใบหน้าบุคคล"}
           </Button>
         </div>
       </form>
-
-      {/* Fullscreen / Expanded Camera Modal */}
-      <Modal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title="มุมมองกล้องขนาดใหญ่ (Expanded Camera View)"
-        maxWidth="max-w-4xl"
-      >
-        <div className="flex flex-col gap-4">
-          <div className="relative rounded-2xl overflow-hidden bg-black aspect-16/10 flex items-center justify-center border border-[#e8e0d5]">
-            {activeSourceTab === "esp32" ? (
-              <img
-                src={esp32StreamSrc}
-                alt="ESP32 Live Stream"
-                className="w-full h-full object-cover"
-                onError={handleStreamError}
-              />
-            ) : (
-              <video
-                ref={handleModalVideoRef}
-                autoPlay
-                playsInline
-                muted
-                className={`w-full h-full object-cover ${isMirrored ? "scale-x-[-1]" : ""}`}
-              />
-            )}
-
-            {shutterFlash && (
-              <div className="absolute inset-0 bg-white opacity-80 pointer-events-none z-30 transition-opacity duration-150" />
-            )}
-          </div>
-
-          <div className="flex items-center justify-between pt-2">
-            <span className="text-xs text-[#6b6b6b]">
-              มีรูปภาพในเซสชัน: <strong>{images.length}</strong> / 15 รูป
-            </span>
-
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => setIsModalOpen(false)}
-              >
-                ปิด
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                onClick={activeSourceTab === "esp32" ? handleCaptureEsp32 : handleCaptureWebcamSingle}
-                icon={Camera}
-              >
-                ถ่ายภาพทันที
-              </Button>
-            </div>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }
-
-

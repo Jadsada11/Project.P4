@@ -355,7 +355,7 @@ async def detect_from_esp32(
     ดึงภาพ Snapshot ปัจจุบัน แล้ววิเคราะห์ด้วย YOLO + จำแนกบุคคล
     บันทึกประวัติ (History) และส่งแจ้งเตือน (Alert) ลงฐานข้อมูล
     """
-    clean_ip = req.camera_ip.strip().replace("http://", "").replace("https://", "").split("/")[0]
+    clean_ip = (req.camera_ip.strip().replace("http://", "").replace("https://", "").split("/")[0]) or "192.168.137.65"
     port_str = f":{req.camera_port.strip()}" if req.camera_port and req.camera_port.strip() else ""
     path_str = req.camera_path if req.camera_path and req.camera_path.startswith("/") else f"/{req.camera_path or 'capture'}"
 
@@ -404,7 +404,7 @@ async def get_esp32_snapshot(
     ดึงภาพ Snapshot จากบอร์ด ESP32-CAM เพื่อนำไปแสดงผลหรือลงทะเบียนบุคคลใหม่
     หลีกเลี่ยงปัญหา CORS และ Private Network Access restrictions บนเบราว์เซอร์
     """
-    clean_ip = camera_ip.strip().replace("http://", "").replace("https://", "").split("/")[0]
+    clean_ip = (camera_ip.strip().replace("http://", "").replace("https://", "").split("/")[0]) or "192.168.137.65"
     port_str = f":{camera_port.strip()}" if camera_port and camera_port.strip() else ""
     path_str = camera_path if camera_path and camera_path.startswith("/") else f"/{camera_path or 'capture'}"
 
@@ -442,7 +442,7 @@ async def get_esp32_stream(
     รับสตรีมสด MJPEG จาก ESP32-CAM แล้วส่งต่อให้เบราว์เซอร์
     ป้องกันปัญหา Private Network Access / CORS restrictions บนเบราว์เซอร์ 100%
     """
-    clean_ip = camera_ip.strip().replace("http://", "").replace("https://", "").split("/")[0]
+    clean_ip = (camera_ip.strip().replace("http://", "").replace("https://", "").split("/")[0]) or "192.168.137.65"
     port_str = f":{camera_port.strip()}" if camera_port and camera_port.strip() else ""
     target_url = f"http://{clean_ip}{port_str}/stream"
 

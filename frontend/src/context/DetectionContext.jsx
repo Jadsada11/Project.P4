@@ -35,12 +35,14 @@ export const parseStreamUrl = (url) => {
 };
 
 export function DetectionProvider({ children }) {
-  // Camera Connection & Stream State
+  // Camera Connection & Stream State - Locked permanently to 192.168.137.65 /stream
   const [cameraIp, setCameraIp] = useState(() => {
-    return localStorage.getItem("esp32_cam_ip") || DEFAULT_IP;
+    localStorage.setItem("esp32_cam_ip", DEFAULT_IP);
+    return DEFAULT_IP;
   });
   const [streamUrl, setStreamUrl] = useState(() => {
-    return localStorage.getItem("esp32_cam_stream_url") || DEFAULT_STREAM_URL;
+    localStorage.setItem("esp32_cam_stream_url", DEFAULT_STREAM_URL);
+    return DEFAULT_STREAM_URL;
   });
   const [streamMode, setStreamMode] = useState(() => {
     return localStorage.getItem("esp32_cam_mode") || "live"; // "live" | "demo"
@@ -317,12 +319,10 @@ export function DetectionProvider({ children }) {
     return () => clearInterval(timer);
   }, [isAutoDetect, autoDetectInterval, runDetection]);
 
-  // Camera Settings Update Helper
+  // Camera Settings Update Helper - Enforces permanent 192.168.137.65 /stream
   const updateCameraSettings = useCallback((newIp, newUrl, newMode) => {
-    const cleanIp =
-      (newIp || "").trim().replace(/^https?:\/\//, "").split("/")[0].split(":")[0] ||
-      DEFAULT_IP;
-    const finalUrl = newUrl || buildStreamUrl(cleanIp, "", DEFAULT_PATH);
+    const cleanIp = DEFAULT_IP;
+    const finalUrl = DEFAULT_STREAM_URL;
     const finalMode = newMode || "live";
 
     setCameraIp(cleanIp);

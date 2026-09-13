@@ -33,7 +33,7 @@ frontend/
 │   │   ├── detection/          # [2] DetectionPage.jsx (ตรวจจับสด + กรอบ Bounding Box)
 │   │   ├── training/           # [3] TrainingPage.jsx (คลังบุคคล + คอนโซลสถานะเทรน)
 │   │   ├── history/            # [4] HistoryPage.jsx (ประวัติการตรวจจับฉบับเต็ม + Bulk Delete)
-│   │   ├── add-person/         # [5] AddPersonPage.jsx (ลงทะเบียนและถ่ายภาพ Burst Mode)
+│   │   ├── add-person/         # [5] AddPersonPage.jsx (ลงทะเบียนบุคคลและอัปโหลดชุดภาพ Dataset)
 │   │   ├── alerts/             # [6] AlertsPage.jsx (รายการแจ้งเตือน + ลบเดี่ยว/ล้างทั้งหมด)
 │   │   └── auth/               # [7] LoginPage.jsx, SignupPage.jsx
 │   ├── services/
@@ -74,10 +74,10 @@ frontend/
 - **Identify & Train:** ระบุตัวตนคนแปลกหน้าและส่งภาพเข้าสู่คลังเวกเตอร์ AI ทันที
 
 ### 3.5 หน้าลงทะเบียนบุคคลใหม่ (`/add-person`)
-- **Identity Details Form:** ชื่อ-นามสกุล, เลือกหมวดหมู่ (`household`, `delivery`), แผนก/บทบาท
-- **Multi-Source Capture:** ถ่ายภาพจาก ESP32-S3 AI Camera, เว็บแคม (พร้อมปุ่มกลับด้านภาพ), หรืออัปโหลดไฟล์
-- **Burst Capture Mode:** ถ่ายภาพต่อเนื่องอัตโนมัติ 3 ช็อต เพื่อให้ได้มุมมองศีรษะที่หลากหลาย
-- **Dataset Quality Guide:** แนะนำจำนวนภาพขั้นต่ำ (3-5 ภาพ) เพื่อความแม่นยำระดับสูงสุด
+- **Identity Details Form:** ชื่อ-นามสกุล, เลือกหมวดหมู่ (`household`, `delivery`, `stranger`), แผนก/สังกัด, บันทึกความปลอดภัย
+- **Direct File Upload:** อัปโหลดชุดรูปภาพใบหน้าผ่าน Drag & Drop หรือเลือกไฟล์จากคอมพิวเตอร์ (รองรับไฟล์ JPG, PNG, WEBP หลายไฟล์พร้อมกัน)
+- **Primary Avatar Selection:** เลือกระบุภาพโปรไฟล์หลัก (Star ⭐) สำหรับแสดงผลในระบบ
+- **Dataset Quality Guide:** แถบเกณฑ์ประเมินคุณภาพชุดข้อมูล AI และคำแนะนำมุมมองใบหน้า (หน้าตรง, มุมเอียง, แสงสว่าง) เพื่อความแม่นยำสูงสุด
 
 ### 3.6 หน้าระบบแจ้งเตือนความปลอดภัย (`/alerts`)
 - **Filters:** สลับดู `All Alerts` หรือ `Unread Only`

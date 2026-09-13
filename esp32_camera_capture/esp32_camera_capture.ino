@@ -229,7 +229,8 @@ void handleStatus() {
   json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
   json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
   json += "\"free_heap\":" + String(ESP.getFreeHeap()) + ",";
-  json += "\"psram\":" + String(psramFound() ? "true" : "false");
+  json += "\"psram\":" + String(psramFound() ? "true" : "false") + ",";
+  json += "\"free_psram\":" + String(ESP.getFreePsram());
   json += "}";
   server.send(200, "application/json", json);
 }
@@ -239,6 +240,7 @@ void handleStatus() {
 // =========================
 bool initCamera() {
   camera_config_t config;
+  memset(&config, 0, sizeof(camera_config_t));
 
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -264,35 +266,79 @@ bool initCamera() {
   config.pin_reset = RESET_GPIO_NUM;
 
   config.xclk_freq_hz = 20000000;
-
-  // JPEG สำหรับ Web Stream และ Single Capture
   config.pixel_format = PIXFORMAT_JPEG;
 
-  // เริ่มจาก VGA (640x480) หรือ SVGA (800x600) เพื่อความเสถียรและรวดเร็ว
-  config.frame_size = FRAMESIZE_VGA;
+  bool hasPSRAM = psramFound();
 
-  // JPEG quality (ค่ายิ่งน้อย = ภาพละเอียดขึ้น)
-  config.jpeg_quality = 12;
+  // ตรวจสอบและเลือกตำแหน่งจัดเก็บ Frame Buffer ตามสถานะ PSRAM
+  if (hasPSRAM) {
+    Serial.println("[Camera] PSRAM detected! Enabling dual frame-buffer in PSRAM for high performance.");
+    config.frame_size = FRAMESIZE_VGA;      // 640x480 เหมาะสำหรับ YOLOv8 & Live Stream
+    config.jpeg_quality = 12;               // 10-12 คุณภาพคมชัด
+    config.fb_count = 2;                    // 2 Buffers เพื่อความลื่นไหลระดับ 25-30 FPS
+    config.fb_location = CAMERA_FB_IN_PSRAM;
+    config.grab_mode = CAMERA_GRAB_LATEST;
+  } else {
+    Serial.println("==================================================================");
+    Serial.println("[Camera WARNING] PSRAM is NOT ENABLED or NOT DETECTED!");
+    Serial.println("To enable full hardware performance & dual buffer:");
+    Serial.println("  1. In Arduino IDE, go to: Tools -> PSRAM");
+    Serial.println("  2. Select 'OPI PSRAM' (or 'QSPI PSRAM' for Quad SPI boards)");
+    Serial.println("Falling back to internal DRAM (Single buffer mode)...");
+    Serial.println("==================================================================");
 
-  // ใช้ PSRAM
-  config.fb_location = CAMERA_FB_IN_PSRAM;
-
-  // 2 Frame Buffer สำหรับการสตรีมที่ลื่นไหล
-  config.fb_count = 2;
-
-  config.grab_mode = CAMERA_GRAB_LATEST;
-
-  Serial.println("Initializing camera...");
-
-  esp_err_t err = esp_camera_init(&config);
-
-  if (err != ESP_OK) {
-    Serial.print("Camera init failed. Error = 0x");
-    Serial.println(err, HEX);
-    return false;
+    config.frame_size = FRAMESIZE_VGA;      // ลอง VGA 1 buffer ใน DRAM
+    config.jpeg_quality = 14;               // บีบอัดเพิ่มขึ้นเพื่อประหยัด RAM
+    config.fb_count = 1;                    // จำกัด 1 Buffer เท่านั้นเพื่อป้องกัน Malloc Failed ใน Internal RAM
+    config.fb_location = CAMERA_FB_IN_DRAM;
+    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   }
 
-  Serial.println("Camera initialized successfully!");
+  Serial.println("Initializing camera driver...");
+  esp_err_t err = esp_camera_init(&config);
+
+  // Fallback สำรอง: หากการ init ครั้งแรกไม่สำเร็จ (เช่น Heap ใน DRAM ไม่พอสำหรับ VGA)
+  if (err != ESP_OK) {
+    Serial.printf("[Camera] Primary init failed (0x%X). Attempting safe DRAM fallback (QVGA 320x240)...\n", err);
+    esp_camera_deinit();
+    delay(100);
+
+    memset(&config, 0, sizeof(camera_config_t));
+    config.ledc_channel = LEDC_CHANNEL_0;
+    config.ledc_timer = LEDC_TIMER_0;
+    config.pin_d0 = Y2_GPIO_NUM;
+    config.pin_d1 = Y3_GPIO_NUM;
+    config.pin_d2 = Y4_GPIO_NUM;
+    config.pin_d3 = Y5_GPIO_NUM;
+    config.pin_d4 = Y6_GPIO_NUM;
+    config.pin_d5 = Y7_GPIO_NUM;
+    config.pin_d6 = Y8_GPIO_NUM;
+    config.pin_d7 = Y9_GPIO_NUM;
+    config.pin_xclk = XCLK_GPIO_NUM;
+    config.pin_pclk = PCLK_GPIO_NUM;
+    config.pin_vsync = VSYNC_GPIO_NUM;
+    config.pin_href = HREF_GPIO_NUM;
+    config.pin_sccb_sda = SIOD_GPIO_NUM;
+    config.pin_sccb_scl = SIOC_GPIO_NUM;
+    config.pin_pwdn = PWDN_GPIO_NUM;
+    config.pin_reset = RESET_GPIO_NUM;
+    config.xclk_freq_hz = 16000000;         // ปรับลด XCLK เพื่อความเสถียรของสัญญาณ
+    config.pixel_format = PIXFORMAT_JPEG;
+    config.frame_size = FRAMESIZE_QVGA;     // 320x240 ขนาดเล็ก ใช้ RAM น้อยที่สุด
+    config.jpeg_quality = 16;
+    config.fb_count = 1;
+    config.fb_location = CAMERA_FB_IN_DRAM;
+    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+
+    err = esp_camera_init(&config);
+    if (err != ESP_OK) {
+      Serial.printf("[Camera FATAL] Emergency fallback also failed (0x%X)!\n", err);
+      return false;
+    }
+    Serial.println("[Camera] Initialized successfully in safe DRAM fallback mode (QVGA)!");
+  } else {
+    Serial.println("[Camera] Initialized successfully!");
+  }
 
   // ปรับจูนเซนเซอร์ OV3660
   sensor_t *s = esp_camera_sensor_get();
@@ -318,40 +364,66 @@ void setup() {
   Serial.println("Connected to YOLOv8 Classification System");
   Serial.println("==========================================");
 
-  // ตรวจสอบ PSRAM
+  // ตรวจสอบและแสดงสถานะหน่วยความจำของระบบ
+  Serial.printf("Internal Free Heap: %d bytes\n", ESP.getFreeHeap());
   if (psramFound()) {
-    Serial.println("PSRAM: OK (Available)");
+    Serial.printf("PSRAM: OK (Total: %d bytes, Free: %d bytes)\n", ESP.getPsramSize(), ESP.getFreePsram());
   } else {
-    Serial.println("PSRAM: NOT FOUND (Performance reduced)");
+    Serial.println("PSRAM: NOT FOUND or NOT ENABLED!");
+    Serial.println("--> Please check Arduino IDE: Tools -> PSRAM -> 'OPI PSRAM'");
   }
 
   // Camera Initialization
   if (!initCamera()) {
-    Serial.println("Camera initialization failed! Restarting in 3 seconds...");
-    delay(3000);
+    Serial.println("==========================================================");
+    Serial.println("FATAL: Camera initialization failed!");
+    Serial.println("Checklist to resolve:");
+    Serial.println("  1. Arduino IDE: Tools -> PSRAM -> Set to 'OPI PSRAM'");
+    Serial.println("  2. Arduino IDE: Tools -> Board -> 'ESP32S3 Dev Module'");
+    Serial.println("  3. Check camera flat ribbon cable connection to the board.");
+    Serial.println("System will retry in 10 seconds...");
+    Serial.println("==========================================================");
+    delay(10000);
     ESP.restart();
   }
 
-  // WiFi Connection (กำหนด Static IP ให้กล้องเป็น 192.168.137.65 แบบถาวร)
+  // WiFi Connection (ล็อก Static IP ให้กล้องเป็น 192.168.137.65 แบบถาวร ไม่เปลี่ยน)
+  WiFi.disconnect(true);
+  delay(100);
   WiFi.mode(WIFI_STA);
+
   if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
-    Serial.println("Warning: Static IP configuration failed! Falling back to DHCP...");
+    Serial.println("Re-applying Static IP: 192.168.137.65...");
+    WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS);
   } else {
     Serial.println("Static IP configured: 192.168.137.65");
   }
 
   WiFi.begin(ssid, password);
-  Serial.print("Connecting to WiFi");
+  Serial.print("Connecting to WiFi: ");
+  Serial.println(ssid);
 
-  while (WiFi.status() != WL_CONNECTED) {
+  int wifiAttempts = 30; // รอ 15 วินาที
+  while (WiFi.status() != WL_CONNECTED && wifiAttempts > 0) {
     delay(500);
     Serial.print(".");
+    wifiAttempts--;
   }
 
-  Serial.println();
-  Serial.println("WiFi connected successfully!");
-  Serial.print("ESP32-CAM IP Address: ");
-  Serial.println(WiFi.localIP());
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println();
+    Serial.println("WiFi connected successfully!");
+    Serial.print("ESP32-CAM IP Address: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println();
+    Serial.println("WiFi not connected yet! Starting Fallback AP with Locked IP: 192.168.137.65...");
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAPConfig(local_IP, gateway, subnet);
+    WiFi.softAP("Vigil-ESP32-CAM", "12345678");
+    Serial.print("AP Mode Active - IP Address: ");
+    Serial.println(WiFi.softAPIP());
+  }
 
   // Web Endpoints
   server.on("/", HTTP_GET, handleRoot);
@@ -365,13 +437,12 @@ void setup() {
   server.begin();
 
   Serial.println("HTTP Server started!");
-  Serial.println();
-  Serial.print("Live MJPEG Stream: http://");
-  Serial.print(WiFi.localIP());
-  Serial.println("/stream");
-  Serial.print("Single Snapshot Capture: http://");
-  Serial.print(WiFi.localIP());
-  Serial.println("/capture");
+  Serial.println("==========================================================");
+  Serial.println("PERMANENT CAMERA URLS (LOCKED):");
+  Serial.println("Live MJPEG Stream:      http://192.168.137.65/stream");
+  Serial.println("Single Snapshot:        http://192.168.137.65/capture");
+  Serial.println("Status JSON:            http://192.168.137.65/status");
+  Serial.println("==========================================================");
 }
 
 // =========================
@@ -379,4 +450,15 @@ void setup() {
 // =========================
 void loop() {
   server.handleClient();
+
+  // ตรวจสอบและล็อก Static IP 192.168.137.65 อย่างต่อเนื่อง
+  static unsigned long lastCheck = 0;
+  if (millis() - lastCheck > 6000) {
+    lastCheck = millis();
+    if (WiFi.status() != WL_CONNECTED && (WiFi.getMode() & WIFI_MODE_STA)) {
+      Serial.println("[WiFi] Reconnecting with locked Static IP 192.168.137.65...");
+      WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS);
+      WiFi.reconnect();
+    }
+  }
 }

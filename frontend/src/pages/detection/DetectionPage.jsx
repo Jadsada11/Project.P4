@@ -228,19 +228,18 @@ export default function DetectionPage() {
     reconnectStream();
   };
 
-  // Save Settings
+  // Save Settings - Permanently locked to 192.168.137.65 /stream
   const handleSaveSettings = (e) => {
     if (e) e.preventDefault();
-    const newUrl = buildStreamUrl(tempIp, tempPort, tempPath);
-    updateCameraSettings(tempIp, newUrl, tempMode);
+    updateCameraSettings(DEFAULT_IP, DEFAULT_STREAM_URL, tempMode);
     setIsSettingsOpen(false);
   };
 
-  // Apply quick presets
-  const applyPreset = (presetIp, presetPort = "", presetPath = "/stream") => {
-    setTempIp(presetIp);
-    setTempPort(presetPort);
-    setTempPath(presetPath);
+  // Apply quick presets - Always enforces 192.168.137.65 /stream
+  const applyPreset = () => {
+    setTempIp(DEFAULT_IP);
+    setTempPort("");
+    setTempPath(DEFAULT_PATH);
   };
 
   // Snapshot Button
@@ -1019,72 +1018,49 @@ export default function DetectionPage() {
         maxWidth="max-w-lg"
       >
         <form onSubmit={handleSaveSettings} className="flex flex-col gap-5">
-          {/* Quick Presets */}
+          {/* Fixed Camera Stream Banner */}
           <div className="flex flex-col gap-2">
             <span className="text-xs font-bold text-[#1a1a1a] uppercase tracking-wider">
-              ค่าเริ่มต้นแนะนำ (Quick Presets)
+              ค่าสตรีมกล้องที่ล็อกคงที่ (Permanent Fixed Stream)
             </span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => applyPreset(DEFAULT_IP, "", "/stream")}
-                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                  tempIp === DEFAULT_IP
-                    ? "border-[#e8b48a] bg-[#f5c9a8]/20 font-bold text-[#1a1a1a]"
-                    : "border-[#e8e0d5] bg-[#f7f1e9]/60 hover:bg-[#f7f1e9] text-[#4a4a4a]"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-xs font-bold">ESP32 Hotspot (ค่าเริ่มต้น)</span>
-                  {tempIp === DEFAULT_IP && (
-                    <Check className="w-3.5 h-3.5 text-[#2e7d32]" />
-                  )}
+            <div className="p-3.5 rounded-2xl border border-[#e8b48a] bg-[#f5c9a8]/20 flex items-center justify-between">
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-[#2e7d32] animate-pulse" />
+                  <span className="text-xs font-bold text-[#1a1a1a]">DFRobot ESP32-S3 AI Camera (OV3660)</span>
                 </div>
-                <span className="text-[11px] font-mono text-[#6b6b6b]">
-                  {DEFAULT_IP}/stream
+                <span className="text-xs font-mono font-bold text-[#e65100]">
+                  http://192.168.137.65/stream
                 </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => applyPreset("192.168.4.1", "", "/stream")}
-                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                  tempIp === "192.168.4.1"
-                    ? "border-[#e8b48a] bg-[#f5c9a8]/20 font-bold text-[#1a1a1a]"
-                    : "border-[#e8e0d5] bg-[#f7f1e9]/60 hover:bg-[#f7f1e9] text-[#4a4a4a]"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-xs font-bold">ESP32 AP Mode (สำรอง)</span>
-                  {tempIp === "192.168.4.1" && (
-                    <Check className="w-3.5 h-3.5 text-[#2e7d32]" />
-                  )}
-                </div>
-                <span className="text-[11px] font-mono text-[#6b6b6b]">
-                  192.168.4.1/stream
+                <span className="text-[11px] text-[#6b6b6b]">
+                  กำหนด Static IP 192.168.137.65 แบบถาวร ไม่เปลี่ยนแม้รีสตาร์ตกล้อง
                 </span>
-              </button>
+              </div>
+              <span className="px-2.5 py-1 text-[11px] font-bold rounded-xl bg-[#2e7d32] text-white flex items-center gap-1 shrink-0">
+                <Check className="w-3.5 h-3.5" />
+                <span>LOCKED</span>
+              </span>
             </div>
           </div>
 
           <div className="flex flex-col gap-3">
             <Input
-              label="IP Address กล้อง ESP32"
-              value={tempIp}
-              onChange={(e) => setTempIp(e.target.value)}
+              label="IP Address กล้อง ESP32 (ล็อกคงที่)"
+              value="192.168.137.65"
+              disabled
               placeholder="192.168.137.65"
             />
             <div className="grid grid-cols-2 gap-3">
               <Input
-                label="Port (เว้นว่างถ้าเป็นพอร์ต 80)"
-                value={tempPort}
-                onChange={(e) => setTempPort(e.target.value)}
+                label="Port"
+                value="80 (Default)"
+                disabled
                 placeholder="80"
               />
               <Input
-                label="Path ของสตรีม"
-                value={tempPath}
-                onChange={(e) => setTempPath(e.target.value)}
+                label="Path ของสตรีม (ล็อกคงที่)"
+                value="/stream"
+                disabled
                 placeholder="/stream"
               />
             </div>

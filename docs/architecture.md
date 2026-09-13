@@ -30,7 +30,7 @@ flowchart TD
         DASH["Live Monitoring & Camera Feed (/detection)"]
         HIST["Detection History & Audit Logs (/history)"]
         TRAIN["AI Model & Identity Registry (/training)"]
-        ADD["Register & Multi-shot Capture (/add-person)"]
+        ADD["Register & Dataset Upload (/add-person)"]
         ALERTP["Security Alerts (/alerts)"]
     end
 
@@ -99,7 +99,7 @@ sequenceDiagram
     end
 
     opt เมื่อต้องการเทรนบุคคลใหม่
-        User->>FE: ถ่ายภาพ 3-5 ภาพที่หน้า /add-person
+        User->>FE: อัปโหลดภาพ 3-5 ภาพที่หน้า /add-person
         FE->>BE: POST /api/v1/persons (Images + Meta)
         BE->>AI: สกัดเวกเตอร์เฉลี่ย L2 Centroid
         BE->>DB: บันทึกข้อมูลบุคคล
