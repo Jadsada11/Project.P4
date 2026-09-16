@@ -25,11 +25,6 @@ venv/
 .venv/
 ENV/
 
-# Database files
-data/*.db
-data/*.sqlite3
-data/*.db-journal
-
 # Environment variables
 .env.local
 
