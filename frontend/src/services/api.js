@@ -128,7 +128,11 @@ export const alertsApi = {
     api.put(`/alerts/${id}/read`, { is_read: isRead }).then((res) => res.data),
   markAllRead: () => api.put("/alerts/read-all").then((res) => res.data),
   deleteAlert: (id) => api.delete(`/alerts/${id}`).then((res) => res.data),
+<<<<<<< HEAD
   clearAlerts: (category = "", readOnly = false) =>
+=======
+  clearAlerts: ({ category = "", readOnly = false } = {}) =>
+>>>>>>> 260fd4a03c97f6988bbee365acab77fd6d4d31f2
     api
       .delete("/alerts", {
         params: {

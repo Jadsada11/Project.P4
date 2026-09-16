@@ -1,3 +1,4 @@
+import os
 import io
 import time
 import asyncio
@@ -124,12 +125,17 @@ def clear_detection_history(
     db: Session = Depends(get_db),
 ):
     """
+<<<<<<< HEAD
     ล้างประวัติการตรวจจับทั้งหมด หรือตามหมวดหมู่ที่เลือก
+=======
+    ล้างข้อมูลประวัติการตรวจจับทั้งหมด หรือกรองตามหมวดหมู่
+>>>>>>> 260fd4a03c97f6988bbee365acab77fd6d4d31f2
     """
     query = db.query(DetectionHistory)
     if category and category.strip() and category.upper() != "ALL":
         query = query.filter(DetectionHistory.category == category.lower())
 
+<<<<<<< HEAD
     records_to_delete = query.all()
     history_ids = [r.id for r in records_to_delete]
     if history_ids:
@@ -141,6 +147,19 @@ def clear_detection_history(
     deleted_count = query.delete(synchronize_session=False)
     db.commit()
     return {"message": f"Deleted {deleted_count} detection records", "count": deleted_count}
+=======
+    records = query.all()
+    deleted_count = len(records)
+    for r in records:
+        # Nullify foreign key in alerts first to prevent FK constraint failure
+        db.query(Alert).filter(Alert.detection_id == r.id).update({"detection_id": None})
+        db.delete(r)
+    db.commit()
+    return {
+        "message": f"ลบประวัติการตรวจจับสำเร็จ {deleted_count} รายการ",
+        "deleted_count": deleted_count,
+    }
+>>>>>>> 260fd4a03c97f6988bbee365acab77fd6d4d31f2
 
 
 @router.delete("/history/{history_id}", status_code=status.HTTP_204_NO_CONTENT, summary="ลบประวัติการตรวจจับ")
@@ -148,8 +167,13 @@ def delete_detection_history(history_id: int, db: Session = Depends(get_db)):
     record = db.query(DetectionHistory).filter(DetectionHistory.id == history_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="Detection record not found")
+<<<<<<< HEAD
 
     # ปลด Foreign Key ในตาราง alerts ก่อนลบ
+=======
+    
+    # Nullify foreign key in alerts
+>>>>>>> 260fd4a03c97f6988bbee365acab77fd6d4d31f2
     db.query(Alert).filter(Alert.detection_id == history_id).update({"detection_id": None})
     db.delete(record)
     db.commit()
@@ -312,14 +336,14 @@ async def detect_image(
 async def fetch_esp32_frame(clean_ip: str, port_str: str = "", path_str: str = "/capture") -> Optional[bytes]:
     """
     ดึงภาพ 1 เฟรมจาก ESP32-CAM อย่างชาญฉลาด:
-    1. ลองดึงจาก /capture ด้วย timeout สั้น (2.5 วินาที)
-    2. หาก /capture ไม่ตอบสนอง (เช่น กล้องกำลังสตรีมอยู่) ให้ดึง 1 เฟรมแรกจาก /stream แทนทันที
+    1. ลองดึงจาก /capture ด้วย timeout สั้น (1.5 วินาที)
+    2. หาก /capture ไม่ตอบสนอง ให้ดึง 1 เฟรมแรกจาก /stream แทนทันที (2.0 วินาที)
     """
     target_url = f"http://{clean_ip}{port_str}{path_str}"
 
     # 1. พยายามดึงภาพผ่าน /capture
     try:
-        async with httpx.AsyncClient(timeout=2.5) as client:
+        async with httpx.AsyncClient(timeout=1.5) as client:
             resp = await client.get(target_url)
             if resp.status_code == 200 and len(resp.content) > 500:
                 return resp.content
@@ -329,7 +353,7 @@ async def fetch_esp32_frame(clean_ip: str, port_str: str = "", path_str: str = "
     # 2. Fallback: ดึง 1 เฟรม JPEG จาก /stream ทันที
     stream_url = f"http://{clean_ip}{port_str}/stream"
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        async with httpx.AsyncClient(timeout=2.0) as client:
             async with client.stream("GET", stream_url) as stream_resp:
                 if stream_resp.status_code == 200:
                     chunks = b""
@@ -355,33 +379,21 @@ async def detect_from_esp32(
     ดึงภาพ Snapshot ปัจจุบัน แล้ววิเคราะห์ด้วย YOLO + จำแนกบุคคล
     บันทึกประวัติ (History) และส่งแจ้งเตือน (Alert) ลงฐานข้อมูล
     """
-    clean_ip = req.camera_ip.strip().replace("http://", "").replace("https://", "").split("/")[0]
+    clean_ip = (req.camera_ip.strip().replace("http://", "").replace("https://", "").split("/")[0]) or "192.168.137.65"
     port_str = f":{req.camera_port.strip()}" if req.camera_port and req.camera_port.strip() else ""
     path_str = req.camera_path if req.camera_path and req.camera_path.startswith("/") else f"/{req.camera_path or 'capture'}"
 
     image_bytes = await fetch_esp32_frame(clean_ip, port_str, path_str)
 
     if not image_bytes:
-        # หากกล้องออฟไลน์ในระหว่างทดสอบ ให้จำลองภาพบุคคลทดสอบเพื่อไม่ให้การมอนิเตอร์พัง
-        sample_img_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-            "data",
-            "snapshots",
+        # หากกล้องออฟไลน์หรือไม่ตอบสนอง คืนค่า 0 detections ปลอดภัยไม่ crash
+        return DetectResultResponse(
+            success=False,
+            camera_id=f"ESP32 ({clean_ip})",
+            timestamp=datetime.now(timezone.utc),
+            detections_count=0,
+            detections=[],
         )
-        sample_files = [os.path.join(sample_img_path, f) for f in os.listdir(sample_img_path) if f.endswith(".jpg")] if os.path.isdir(sample_img_path) else []
-        if sample_files:
-            try:
-                with open(sample_files[0], "rb") as sf:
-                    image_bytes = sf.read()
-            except Exception:
-                pass
-
-        if not image_bytes:
-            # Fallback black frame
-            img = Image.new("RGB", (640, 480), color=(30, 30, 35))
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG")
-            image_bytes = buf.getvalue()
 
     image_np = bytes_to_image(image_bytes)
     if image_np is None:
@@ -416,7 +428,7 @@ async def get_esp32_snapshot(
     ดึงภาพ Snapshot จากบอร์ด ESP32-CAM เพื่อนำไปแสดงผลหรือลงทะเบียนบุคคลใหม่
     หลีกเลี่ยงปัญหา CORS และ Private Network Access restrictions บนเบราว์เซอร์
     """
-    clean_ip = camera_ip.strip().replace("http://", "").replace("https://", "").split("/")[0]
+    clean_ip = (camera_ip.strip().replace("http://", "").replace("https://", "").split("/")[0]) or "192.168.137.65"
     port_str = f":{camera_port.strip()}" if camera_port and camera_port.strip() else ""
     path_str = camera_path if camera_path and camera_path.startswith("/") else f"/{camera_path or 'capture'}"
 
@@ -454,7 +466,7 @@ async def get_esp32_stream(
     รับสตรีมสด MJPEG จาก ESP32-CAM แล้วส่งต่อให้เบราว์เซอร์
     ป้องกันปัญหา Private Network Access / CORS restrictions บนเบราว์เซอร์ 100%
     """
-    clean_ip = camera_ip.strip().replace("http://", "").replace("https://", "").split("/")[0]
+    clean_ip = (camera_ip.strip().replace("http://", "").replace("https://", "").split("/")[0]) or "192.168.137.65"
     port_str = f":{camera_port.strip()}" if camera_port and camera_port.strip() else ""
     target_url = f"http://{clean_ip}{port_str}/stream"
 

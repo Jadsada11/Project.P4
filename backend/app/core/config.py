@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite:///./data/vigil.db"
 
+    # Fixed ESP32-S3 Camera IP Configuration (Locked)
+    DEFAULT_ESP32_IP: str = "192.168.137.65"
+    DEFAULT_ESP32_STREAM_URL: str = "http://192.168.137.65/stream"
+    DEFAULT_ESP32_CAPTURE_URL: str = "http://192.168.137.65/capture"
+
     # CORS Configuration
     BACKEND_CORS_ORIGINS: Union[List[str], str] = [
         "http://localhost:5173",

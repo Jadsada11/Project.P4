@@ -7,6 +7,7 @@ import GuestRoute from "../components/guards/GuestRoute";
 import LandingPage from "../pages/landing/LandingPage";
 import DetectionPage from "../pages/detection/DetectionPage";
 import TrainingPage from "../pages/training/TrainingPage";
+import HistoryPage from "../pages/history/HistoryPage";
 import AddPersonPage from "../pages/add-person/AddPersonPage";
 import AlertsPage from "../pages/alerts/AlertsPage";
 import LoginPage from "../pages/auth/LoginPage";
@@ -23,6 +24,7 @@ const router = createBrowserRouter([
           { path: "/", element: <LandingPage /> },
           { path: "/detection", element: <DetectionPage /> },
           { path: "/training", element: <TrainingPage /> },
+          { path: "/history", element: <HistoryPage /> },
           { path: "/add-person", element: <AddPersonPage /> },
           { path: "/alerts", element: <AlertsPage /> },
         ],

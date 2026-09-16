@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router";
-import { Shield, Camera, Database, Bell, UserPlus, LogIn, LogOut, User } from "lucide-react";
+import { Shield, Camera, Clock, Database, Bell, UserPlus, LogIn, LogOut, User } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { useDetection } from "../../context/DetectionContext";
 import { alertsApi } from "../../services/api";
 
 export default function Navbar() {
   const location = useLocation();
   const { user, isAuthenticated, logout } = useAuth();
+  const detection = useDetection();
+  const isAutoDetect = detection?.isAutoDetect;
+  const isDetecting = detection?.isDetecting;
   const [unreadAlertsCount, setUnreadAlertsCount] = useState(0);
 
   const fetchUnreadCount = async () => {
@@ -32,6 +36,7 @@ export default function Navbar() {
   const navLinks = [
     { name: "Live Detection", path: "/detection", icon: Camera },
     { name: "Training & DB", path: "/training", icon: Database },
+    { name: "History", path: "/history", icon: Clock },
     {
       name: "Alerts",
       path: "/alerts",
@@ -95,6 +100,35 @@ export default function Navbar() {
 
         {/* Right Actions */}
         <div className="flex items-center gap-2 shrink-0">
+          {/* Live AI Camera 24/7 Status Indicator */}
+          <Link
+            to="/detection"
+            className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all ${
+              isAutoDetect
+                ? "bg-[#e8f5e9] text-[#2e7d32] border-[#a5d6a7] hover:bg-[#c8e6c9]"
+                : "bg-[#f7f1e9] text-[#6b6b6b] border-[#e8e0d5] hover:text-[#1a1a1a]"
+            }`}
+            title={
+              isAutoDetect
+                ? "ระบบกล้องและ AI กำลังตรวจจับอัตโนมัติ 24/7 (คลิกเพื่อดูกล้องสด)"
+                : "ระบบตรวจจับกล้องหยุดชั่วคราว (คลิกเพื่อเปิดใช้งาน)"
+            }
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                isAutoDetect
+                  ? isDetecting
+                    ? "bg-[#e65100] animate-ping"
+                    : "bg-[#2e7d32] animate-pulse"
+                  : "bg-neutral-400"
+              }`}
+            />
+            <span className="hidden lg:inline">
+              {isDetecting ? "AI DETECTING" : isAutoDetect ? "CAM 24/7 ACTIVE" : "CAM PAUSED"}
+            </span>
+            <span className="lg:hidden">{isAutoDetect ? "CAM ON" : "CAM OFF"}</span>
+          </Link>
+
           <Link
             to="/add-person"
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-[#f5c9a8] hover:bg-[#e8b48a] text-[#1a1a1a] transition-all shadow-xs"
