@@ -25,6 +25,10 @@ venv/
 .venv/
 ENV/
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> ece3a086582b6fc8774994a766bab5882bda4fad
 # Environment variables
 .env.local
 
