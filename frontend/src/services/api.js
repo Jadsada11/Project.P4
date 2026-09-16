@@ -76,25 +76,30 @@ export const detectionApi = {
   detectESP32: (payload) =>
     api.post("/detection/detect-esp32", payload).then((res) => res.data),
   getEsp32StreamUrl: (ip, port = "") => {
-    const cleanIp = ip ? ip.trim().replace(/^https?:\/\//, "").split("/")[0] : "";
-    return `${API_BASE_URL}/detection/esp32-stream?camera_ip=${encodeURIComponent(cleanIp)}&camera_port=${encodeURIComponent(port || "")}`;
+    const cleanIp = ip ? ip.trim().replace(/^https?:\/\//, "").split("/")[0] : "192.168.137.65";
+    const cleanPort = port && port.trim() !== "8000" && port.trim() !== "80" ? port.trim() : "";
+    return `${API_BASE_URL}/detection/esp32-stream?camera_ip=${encodeURIComponent(cleanIp)}&camera_port=${encodeURIComponent(cleanPort)}`;
   },
   getEsp32SnapshotUrl: (ip, port = "", path = "/capture") => {
-    const cleanIp = ip ? ip.trim().replace(/^https?:\/\//, "").split("/")[0] : "";
-    return `${API_BASE_URL}/detection/esp32-snapshot?camera_ip=${encodeURIComponent(cleanIp)}&camera_port=${encodeURIComponent(port || "")}&camera_path=${encodeURIComponent(path || "/capture")}&_t=${Date.now()}`;
+    const cleanIp = ip ? ip.trim().replace(/^https?:\/\//, "").split("/")[0] : "192.168.137.65";
+    const cleanPort = port && port.trim() !== "8000" && port.trim() !== "80" ? port.trim() : "";
+    return `${API_BASE_URL}/detection/esp32-snapshot?camera_ip=${encodeURIComponent(cleanIp)}&camera_port=${encodeURIComponent(cleanPort)}&camera_path=${encodeURIComponent(path || "/capture")}&_t=${Date.now()}`;
   },
-  fetchEsp32SnapshotBlob: (ip, port = "", path = "/capture") =>
-    api
+  fetchEsp32SnapshotBlob: (ip, port = "", path = "/capture") => {
+    const cleanIp = ip ? ip.trim().replace(/^https?:\/\//, "").split("/")[0] : "192.168.137.65";
+    const cleanPort = port && port.trim() !== "8000" && port.trim() !== "80" ? port.trim() : "";
+    return api
       .get("/detection/esp32-snapshot", {
         params: {
-          camera_ip: ip ? ip.trim().replace(/^https?:\/\//, "").split("/")[0] : "",
-          camera_port: port || "",
+          camera_ip: cleanIp,
+          camera_port: cleanPort,
           camera_path: path || "/capture",
           _t: Date.now(),
         },
         responseType: "blob",
       })
-      .then((res) => res.data),
+      .then((res) => res.data);
+  },
   deleteHistory: (id) =>
     api.delete(`/detection/history/${id}`).then((res) => res.data),
   clearHistory: (category = "") =>

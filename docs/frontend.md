@@ -24,7 +24,7 @@ frontend/
 ├── src/
 │   ├── assets/                 # รูปภาพ โลโก้ และภาพประกอบ
 │   ├── components/             # Reusable UI Components
-│   │   ├── common/             # UI พื้นฐาน (Button, Badge, Input, MetricCard, Modal, GlobalAlertToast)
+│   │   ├── common/             # UI พื้นฐาน (Button, Badge, Input, MetricCard, Modal, GlobalAlertToast, RouteErrorBoundary)
 │   │   ├── guards/             # Route Guards (ProtectedRoute, GuestRoute)
 │   │   └── layout/             # MainLayout, AuthLayout, Navbar, Footer
 │   ├── context/                # AuthContext, DetectionContext (ระบบกล้อง & AI ตรวจจับ 24/7 ข้ามหน้า)
@@ -120,19 +120,24 @@ Navbar จะดักฟัง Event นี้เพื่ออัปเดต
 
 **สถาปัตยกรรมใหม่ (Persistent Background AI Detection & Dual-Trigger Alerts):**
 1. **ย้าย Loop การตรวจจับสู่ Context ระดับ Layout:** นำวงจรตรวจจับและข้อมูลกล้องทั้งหมดไปไว้ใน `DetectionContext` (`DetectionProvider`) ซึ่งห่อหุ้ม `MainLayout` ทำให้ State และ Interval ไม่ถูกทำลายเมื่อสลับหน้า
-2. **Persistent Hidden Stream Element (`vigil-persistent-stream-img`):**
-   - `DetectionProvider` ฝังแท็ก `<img id="vigil-persistent-stream-img" ... />` ซ่อนไว้ใน DOM ตลอดเวลา
-   - เมื่อสลับไปหน้าอื่น (`/training`, `/history`, `/alerts`, `/add-person`) ระบบยังคงดึงเฟรมสดผ่าน HTML5 Canvas จากแท็กซ่อนนี้ แล้วส่งไปประมวลผลที่ `POST /api/v1/detection/detect-image` ได้ทันทีแบบเรียลไทม์ โดยไม่ต้องพึ่งพา Proxy เครือข่าย
+2. **Persistent Hidden Stream Element (`vigil-persistent-stream-img`) พร้อมระบบ Route-Aware:**
+   - เมื่อผู้ใช้อยู่ที่หน้า `/detection` สตรีมหลัก `#esp32-stream-img` จะทำงานเพียงตัวเดียว และ Context จะ **ไม่** mount `#vigil-persistent-stream-img` เพื่อป้องกันการเปิด Socket สตรีมซ้ำซ้อน 2 ตัวพร้อมกันไปยัง ESP32
+   - เมื่อสลับไปหน้าอื่น (`/training`, `/history`, `/alerts`, `/add-person`) แท็กซ่อน `#vigil-persistent-stream-img` จะ mount ขึ้นมาอัตโนมัติ เพื่อดึงเฟรมผ่าน HTML5 Canvas และส่งประมวลผล AI ต่อเนื่อง
    - หากเกิดข้อผิดพลาดในการดึงเฟรม Canvas ระบบจะสลับอัตโนมัติ (Fallback) ไปเรียก `POST /api/v1/detection/detect-esp32` ผ่าน FastAPI Backend
-3. **ระบบแจ้งเตือน 2 ช่องทาง (Dual-Trigger Alerting Mechanism):**
+3. **ระบบ Dual Stream Mode (Direct ESP32 vs Backend Proxy):**
+   - รองรับทั้งการเชื่อมต่อตรง (`Direct`) และผ่านเซิร์ฟเวอร์ (`Backend Proxy`)
+   - มีระบบ **Auto-Fallback**: หากการเชื่อมต่อตรงไปยัง ESP32 ถูกบล็อกโดยข้อกำหนด Private Network Access หรือ CORS บนเบราว์เซอร์ หน้าเว็บจะสลับไปดึงผ่าน Backend Proxy (`/api/v1/detection/esp32-stream`) อัตโนมัติทันที
+   - ปลดล็อก Modal ตั้งค่า IP กล้อง ให้สามารถแก้ไข IP, Port, Path และสลับโหมด Direct / Proxy ได้อย่างอิสระ
+4. **ระบบแจ้งเตือน 2 ช่องทาง (Dual-Trigger Alerting Mechanism):**
    - **Direct Detection Trigger:** เมื่อ Loop การตรวจจับพบคนแปลกหน้า (`stranger`) หรือคนส่งของ (`delivery`) จะสั่งเล่นเสียงไซเรน/กระดิ่งทันทีและตั้งค่า `alertNotification`
    - **Database Sync Trigger (`syncUnreadAlerts`):** ทุกๆ 4 วินาที Context จะตรวจสอบ SQLite (`GET /api/v1/alerts?unread_only=true&limit=1`) เพื่อให้มั่นใจว่าหากมี Alert ใหม่เกิดขึ้น (ไม่ว่าจะตรวจจับจากหน้านี้ Backend หรืออุปกรณ์อื่น) จะส่งเสียงแจ้งเตือนและแสดง Toast ทันที 100%
-4. **การแสดงผลและการแจ้งเตือนครอบคลุมทุกหน้า:**
+5. **การแสดงผลและการแจ้งเตือนครอบคลุมทุกหน้า:**
    - **เสียงเตือน (Chime):** สังเคราะห์ผ่าน Web Audio API ดังขึ้นทันทีแม้เปิดหน้าอื่นอยู่ พร้อมระบบ `AudioContext.resume()` รองรับ Autoplay Policy ของเบราว์เซอร์
    - **การแจ้งเตือนลอย (GlobalAlertToast):** เมื่อตรวจพบขณะอยู่หน้าอื่น จะมีแบนเนอร์ลอยขึ้นมาที่มุมขวาบนพร้อมปุ่มลิงก์ด่วนไปยัง `/alerts` หรือ `/detection`
    - **HTML5 Web Desktop Notifications:** เด้งการแจ้งเตือนระดับ OS เมื่อเปิดการยินยอม
    - **สถานะกล้องสดบน Navbar:** แสดง Badge `CAM 24/7 ACTIVE` พร้อมจุดสีเขียวกระพริบยืนยันว่ากล้องทำงานตลอดเวลา
-5. **การซิงก์ข้อมูลบนหน้า Live Detection (`DetectionPage`):** หน้านี้จะเรียกใช้ `useDetection()` เพื่อรับ State และ Detections ล่าสุด และใช้ฟังก์ชัน `fetchStatsAndHistory()` ในการรีเฟรชการ์ดประวัติผู้มาเยือนและสถิติให้ตรงกับฐานข้อมูลโดยไม่ต้องสร้าง Timer ตรวจจับซ้ำซ้อน
+6. **การซิงก์ข้อมูลบนหน้า Live Detection (`DetectionPage`):** หน้านี้จะเรียกใช้ `useDetection()` เพื่อรับ State และ Detections ล่าสุด และใช้ฟังก์ชัน `fetchStatsAndHistory()` ในการรีเฟรชการ์ดประวัติผู้มาเยือนและสถิติให้ตรงกับฐานข้อมูลโดยไม่ต้องสร้าง Timer ตรวจจับซ้ำซ้อน
+7. **ระบบจัดการข้อผิดพลาดระดับเส้นทาง (Route Error Boundary):** ติดตั้ง `RouteErrorBoundary` (`RouteErrorBoundary.jsx`) เป็น `errorElement` ใน `createBrowserRouter` (`routes.tsx`) ทั้งสำหรับกลุ่ม `ProtectedRoute` และ `GuestRoute` เพื่อดักจับ Unexpected Runtime Errors, ปัญหา Network หรือ 404 โดยแสดงผลด้วยสไตล์ Peach & Cream พร้อมปุ่มรีโหลดหน้าเว็บ, ปุ่มกลับหน้าหลัก และส่วนแสดงข้อผิดพลาดสำหรับ Developer อย่างปลอดภัย ไม่ทำให้หน้าจอขาวหรือแสดง Raw Error Stack สุ่มเสี่ยง
 
 ---
 

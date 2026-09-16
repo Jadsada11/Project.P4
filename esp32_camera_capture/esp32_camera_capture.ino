@@ -1,15 +1,17 @@
 #include "esp_camera.h"
 #include <WiFi.h>
-#include <WebServer.h>
+#include "esp_http_server.h"
+#include "esp_timer.h"
 
 // =========================================================================
 // Vigil Web-IoT Face Recognition & Person Classification System
 // Hardware: DFRobot ESP32-S3 AI Camera (OV3660)
 // Endpoints:
-//   - GET /        : ดูหน้าสตรีมเบื้องต้น
-//   - GET /stream  : MJPEG Real-time Stream สำหรับหน้าเว็บ
+//   - GET /        : หน้าจอมอนิเตอร์กล้องเบื้องต้น
+//   - GET /stream  : MJPEG Real-time Stream รองรับหลายไคลเอนต์พร้อมกัน
 //   - GET /capture : ถ่ายภาพ Single Snapshot JPEG ความเร็วสูงสำหรับ AI / YOLO
 //   - GET /status  : รายงานสถานะกล้อง, WiFi RSSI, Heap memory (JSON)
+// สถาปัตยกรรม: esp_http_server (FreeRTOS Multi-socket Non-blocking Server)
 // =========================================================================
 
 // =========================
@@ -48,13 +50,19 @@ IPAddress secondaryDNS(8, 8, 8, 8);        // Secondary DNS (Google DNS)
 #define HREF_GPIO_NUM      2
 #define PCLK_GPIO_NUM     15
 
-WebServer server(80);
+// Server Handle
+httpd_handle_t camera_httpd = NULL;
+
+// Multipart Stream Constants
+#define PART_BOUNDARY "123456789000000000000987654321"
+static const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace; boundary=" PART_BOUNDARY;
+static const char* _STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
+static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
 // =========================
 // หน้าเว็บมอนิเตอร์บนกล้อง
 // =========================
-void handleRoot() {
-  String html = R"rawliteral(
+static const char INDEX_HTML[] = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
@@ -143,85 +151,117 @@ a.btn:hover {
 </html>
 )rawliteral";
 
-  server.send(200, "text/html", html);
+// =========================
+// URI Handler: หน้าเว็บหลัก (GET /)
+// =========================
+static esp_err_t handle_root(httpd_req_t *req) {
+  httpd_resp_set_type(req, "text/html");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  return httpd_resp_send(req, INDEX_HTML, strlen(INDEX_HTML));
 }
 
 // =========================
-// OPTIONS Preflight Handler (CORS & Private Network Access)
+// URI Handler: CORS OPTIONS Preflight
 // =========================
-void handleOptions() {
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.sendHeader("Access-Control-Allow-Private-Network", "true");
-  server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  server.sendHeader("Access-Control-Allow-Headers", "*");
-  server.send(204);
+static esp_err_t handle_options(httpd_req_t *req) {
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Private-Network", "true");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
+  httpd_resp_set_status(req, "204 No Content");
+  return httpd_resp_send(req, NULL, 0);
 }
 
 // =========================
-// MJPEG Real-time Stream
+// URI Handler: MJPEG Video Stream (GET /stream)
+// Non-blocking, Multi-socket FreeRTOS stream
 // =========================
-void handleStream() {
-  WiFiClient client = server.client();
+static esp_err_t handle_stream(httpd_req_t *req) {
+  camera_fb_t *fb = NULL;
+  esp_err_t res = ESP_OK;
+  size_t _jpg_buf_len = 0;
+  uint8_t *_jpg_buf = NULL;
+  char part_buf[64];
 
-  String response =
-    "HTTP/1.1 200 OK\r\n"
-    "Content-Type: multipart/x-mixed-replace; boundary=frame\r\n"
-    "Access-Control-Allow-Origin: *\r\n"
-    "Access-Control-Allow-Private-Network: true\r\n"
-    "\r\n";
+  res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
+  if (res != ESP_OK) {
+    return res;
+  }
 
-  client.print(response);
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Private-Network", "true");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, OPTIONS");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+  httpd_resp_set_hdr(req, "Pragma", "no-cache");
 
-  while (client.connected()) {
-    camera_fb_t *fb = esp_camera_fb_get();
-
+  while (true) {
+    fb = esp_camera_fb_get();
     if (!fb) {
-      Serial.println("Camera stream frame capture failed");
+      Serial.println("[Stream] Camera frame grab failed");
+      res = ESP_FAIL;
       break;
     }
 
-    client.print("--frame\r\n");
-    client.print("Content-Type: image/jpeg\r\n");
-    client.print("Content-Length: ");
-    client.print(fb->len);
-    client.print("\r\n\r\n");
+    _jpg_buf_len = fb->len;
+    _jpg_buf = fb->buf;
 
-    client.write(fb->buf, fb->len);
-    client.print("\r\n");
+    if (res == ESP_OK) {
+      size_t hlen = snprintf(part_buf, 64, _STREAM_PART, _jpg_buf_len);
+      res = httpd_resp_send_chunk(req, part_buf, hlen);
+    }
+    if (res == ESP_OK) {
+      res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
+    }
+    if (res == ESP_OK) {
+      res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
+    }
 
     esp_camera_fb_return(fb);
+    fb = NULL;
 
-    delay(30);
+    // หากไคลเอนต์ตัดการเชื่อมต่อ ให้หยุดลูปทันทีเพื่อคืนทรัพยากร
+    if (res != ESP_OK) {
+      break;
+    }
+
+    // หน่วงเวลาเล็กน้อยเพื่อให้เฟรมสมูท (~25-30 FPS) และคืน CPU ให้ระบบ
+    vTaskDelay(pdMS_TO_TICKS(30));
   }
+
+  return res;
 }
 
-// =========================================================
-// Single Snapshot JPEG (สำหรับ FastAPI Backend & YOLO Analysis)
-// =========================================================
-void handleCapture() {
+// =========================
+// URI Handler: Single Snapshot JPEG (GET /capture)
+// สำหรับ FastAPI Backend Proxy & YOLO Inference
+// =========================
+static esp_err_t handle_capture(httpd_req_t *req) {
   camera_fb_t *fb = esp_camera_fb_get();
   if (!fb) {
-    Serial.println("Capture snapshot failed");
-    server.send(500, "text/plain", "Camera capture failed");
-    return;
+    Serial.println("[Capture] Snapshot capture failed");
+    httpd_resp_send_500(req);
+    return ESP_FAIL;
   }
 
-  // CORS & PNA Headers เพื่อให้ Frontend เข้าถึงได้โดยตรงไม่ติดบล็อกเบราว์เซอร์
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.sendHeader("Access-Control-Allow-Private-Network", "true");
-  server.sendHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  server.sendHeader("Access-Control-Allow-Headers", "*");
-  server.send_P(200, "image/jpeg", (const char *)fb->buf, fb->len);
+  httpd_resp_set_type(req, "image/jpeg");
+  httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Private-Network", "true");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, OPTIONS");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+  httpd_resp_set_hdr(req, "Pragma", "no-cache");
 
+  esp_err_t res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
   esp_camera_fb_return(fb);
+  return res;
 }
 
-// =========================================================
-// Telemetry Status JSON (สำหรับแสดงผลข้อมูลกล้องใน Dashboard)
-// =========================================================
-void handleStatus() {
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.sendHeader("Access-Control-Allow-Private-Network", "true");
+// =========================
+// URI Handler: Telemetry Status (GET /status)
+// =========================
+static esp_err_t handle_status(httpd_req_t *req) {
   String json = "{";
   json += "\"status\":\"online\",";
   json += "\"board\":\"DFRobot ESP32-S3 AI Camera\",";
@@ -232,7 +272,85 @@ void handleStatus() {
   json += "\"psram\":" + String(psramFound() ? "true" : "false") + ",";
   json += "\"free_psram\":" + String(ESP.getFreePsram());
   json += "}";
-  server.send(200, "application/json", json);
+
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Private-Network", "true");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, OPTIONS");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+
+  return httpd_resp_send(req, json.c_str(), json.length());
+}
+
+// =========================
+// Start Multi-Socket HTTP Server
+// =========================
+void startCameraServer() {
+  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+  config.server_port = 80;
+  config.ctrl_port = 32768;
+  config.max_open_sockets = 7;            // รองรับการเชื่อมต่อพร้อมกันสูงสุด 7 ไคลเอนต์
+  config.lru_purge_enable = true;          // ปิด socket เก่าที่ค้างอัตโนมัติป้องกัน deadlocks
+
+  httpd_uri_t index_uri = {
+    .uri       = "/",
+    .method    = HTTP_GET,
+    .handler   = handle_root,
+    .user_ctx  = NULL
+  };
+
+  httpd_uri_t status_uri = {
+    .uri       = "/status",
+    .method    = HTTP_GET,
+    .handler   = handle_status,
+    .user_ctx  = NULL
+  };
+  httpd_uri_t status_options_uri = {
+    .uri       = "/status",
+    .method    = HTTP_OPTIONS,
+    .handler   = handle_options,
+    .user_ctx  = NULL
+  };
+
+  httpd_uri_t capture_uri = {
+    .uri       = "/capture",
+    .method    = HTTP_GET,
+    .handler   = handle_capture,
+    .user_ctx  = NULL
+  };
+  httpd_uri_t capture_options_uri = {
+    .uri       = "/capture",
+    .method    = HTTP_OPTIONS,
+    .handler   = handle_options,
+    .user_ctx  = NULL
+  };
+
+  httpd_uri_t stream_uri = {
+    .uri       = "/stream",
+    .method    = HTTP_GET,
+    .handler   = handle_stream,
+    .user_ctx  = NULL
+  };
+  httpd_uri_t stream_options_uri = {
+    .uri       = "/stream",
+    .method    = HTTP_OPTIONS,
+    .handler   = handle_options,
+    .user_ctx  = NULL
+  };
+
+  if (httpd_start(&camera_httpd, &config) == ESP_OK) {
+    httpd_register_uri_handler(camera_httpd, &index_uri);
+    httpd_register_uri_handler(camera_httpd, &status_uri);
+    httpd_register_uri_handler(camera_httpd, &status_options_uri);
+    httpd_register_uri_handler(camera_httpd, &capture_uri);
+    httpd_register_uri_handler(camera_httpd, &capture_options_uri);
+    httpd_register_uri_handler(camera_httpd, &stream_uri);
+    httpd_register_uri_handler(camera_httpd, &stream_options_uri);
+    Serial.println("[HTTP Server] Multi-socket FreeRTOS server started successfully on port 80!");
+  } else {
+    Serial.println("[HTTP Server ERROR] Failed to start HTTP server!");
+  }
 }
 
 // =========================
@@ -425,23 +543,15 @@ void setup() {
     Serial.println(WiFi.softAPIP());
   }
 
-  // Web Endpoints
-  server.on("/", HTTP_GET, handleRoot);
-  server.on("/stream", HTTP_GET, handleStream);
-  server.on("/stream", HTTP_OPTIONS, handleOptions);
-  server.on("/capture", HTTP_GET, handleCapture);
-  server.on("/capture", HTTP_OPTIONS, handleOptions);
-  server.on("/status", HTTP_GET, handleStatus);
-  server.on("/status", HTTP_OPTIONS, handleOptions);
+  // Start Multi-Socket HTTP Server
+  startCameraServer();
 
-  server.begin();
-
-  Serial.println("HTTP Server started!");
   Serial.println("==========================================================");
   Serial.println("PERMANENT CAMERA URLS (LOCKED):");
   Serial.println("Live MJPEG Stream:      http://192.168.137.65/stream");
   Serial.println("Single Snapshot:        http://192.168.137.65/capture");
   Serial.println("Status JSON:            http://192.168.137.65/status");
+  Serial.println("Multi-client Support:   YES (FreeRTOS esp_http_server)");
   Serial.println("==========================================================");
 }
 
@@ -449,9 +559,8 @@ void setup() {
 // LOOP
 // =========================
 void loop() {
-  server.handleClient();
-
-  // ตรวจสอบและล็อก Static IP 192.168.137.65 อย่างต่อเนื่อง
+  // FreeRTOS esp_http_server runs independently in background tasks!
+  // loop() เพียงคอยตรวจสอบสถานะ Wi-Fi และเชื่อมต่อใหม่หากหลุด
   static unsigned long lastCheck = 0;
   if (millis() - lastCheck > 6000) {
     lastCheck = millis();
@@ -461,4 +570,5 @@ void loop() {
       WiFi.reconnect();
     }
   }
+  delay(100);
 }

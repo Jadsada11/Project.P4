@@ -181,15 +181,29 @@ Interactive Swagger UI: `http://localhost:8000/docs`
   }
   ```
 - **พฤติกรรมและความทนทาน (Resilience):**
-  - พยายามดึงเฟรมจาก `http://{ip}/capture` (Timeout 1.5 วินาที)
-  - หาก `/capture` ไม่สำเร็จ จะพยายามดึงจาก MJPEG stream `http://{ip}/stream` (Timeout 2.0 วินาที)
-  - หากกล้องปิดอยู่ ไม่ตอบสนอง หรือติดขัด ระบบจะไม่ระเบิด HTTP 500 (`import os` safe) แต่จะตอบกลับ `200 OK` พร้อม `{"success": false, "message": "ESP32 Camera unreachable ...", "detections": []}` เพื่อให้ฝั่ง Frontend ทำงานต่อเนื่องได้อย่างราบรื่น
+  - กรองและตัดพอร์ต `8000` หรือ `80` ออกอัตโนมัติ (`port_str = ""`) ป้องกันการส่งพอร์ตของ FastAPI กลับไปหา ESP32
+  - พยายามดึงเฟรมจาก `http://{ip}/capture` (Timeout 1.5 วินาที พร้อม `Connection: close`)
+  - หาก `/capture` ไม่สำเร็จ จะพยายามดึงเฟรมแรกจาก MJPEG stream `http://{ip}/stream` (Timeout 2.5 วินาที)
+  - หากกล้องปิดอยู่ ไม่ตอบสนอง หรือติดขัด ระบบจะไม่ระเบิด HTTP 500 แต่จะตอบกลับ `200 OK` พร้อม `{"success": false, "detections_count": 0, "detections": []}` เพื่อให้ฝั่ง Frontend ทำงานต่อเนื่องได้อย่างราบรื่น
 - Response `200 OK`: ผลการตรวจจับ รายชื่อบุคคล ค่าความมั่นใจ และการสร้าง Alert
 
-#### ตรวจจับจากไฟล์ภาพ / Canvas Frame
+#### ถ่ายทอดสตรีมสด MJPEG ผ่านเซิร์ฟเวอร์ (Backend Stream Proxy)
+- `GET /api/v1/detection/esp32-stream`
+- Query Params: `camera_ip` (string, default: `192.168.137.65`), `camera_port` (string, optional - ป้องกัน port 8000 อัตโนมัติ)
+- Headers: แนบ `Access-Control-Allow-Origin: *` และ `Access-Control-Allow-Private-Network: true`
+- Media Type: `multipart/x-mixed-replace; boundary=123456789000000000000987654321`
+- **RFC 2046 Compliance**: ส่ง `b"--123456789000000000000987654321\r\n"` ก่อนเฟรมแรก เพื่อให้ตัวถอดรหัสภาพของเบราว์เซอร์ซิงก์เฟรมได้ทันทีโดยไม่ดรอปเฟรมแรก
+- ประโยชน์: แก้ปัญหา Chrome / Edge บล็อก Private Network Access และ CORS จาก Frontend ไปยังบอร์ด ESP32 ได้ 100%
+
+#### ดึงภาพ Snapshot ผ่าน Backend Proxy
+- `GET /api/v1/detection/esp32-snapshot`
+- Query Params: `camera_ip`, `camera_port` (กรองพอร์ต 8000 อัตโนมัติ), `camera_path`
+- Response `200 OK`: Binary image JPEG พร้อม Fallback อัตโนมัติหากกล้องไม่ตอบสนอง
+
+#### ตรวจจับจากไฟล์ภาพ / Canvas Frame / Webcam
 - `POST /api/v1/detection/detect-image`
 - Content-Type: `multipart/form-data`
-- Fields: `file` (binary image JPEG/PNG), `camera_id`, `location`
+- Fields: `file` (binary image JPEG/PNG จาก ESP32 Canvas หรือ Webcam Video Element), `camera_id`, `location`
 - Response `200 OK`: ผลการตรวจจับบุคคลและพิกัดกรอบ Bounding Box
 
 #### สรุปสถิติประจำวัน (Daily Stats)

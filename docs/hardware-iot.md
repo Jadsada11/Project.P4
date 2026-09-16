@@ -21,10 +21,11 @@
 ### เอนด์พอยต์ที่บอร์ดให้บริการ:
 1. **`GET /stream` (MJPEG Video Stream):**
    - ส่งสตรีมภาพเคลื่อนไหวแบบต่อเนื่องที่ 25-30 FPS สำหรับเปิดดูภาพสดบนหน้าเว็บ
-   - มี Content-Type: `multipart/x-mixed-replace; boundary=frame`
+   - รันบนสถาปัตยกรรม `esp_http_server` (FreeRTOS) รองรับหลายไคลเอนต์พร้อมกัน (สูงสุด 7 sockets)
+   - มี Content-Type: `multipart/x-mixed-replace; boundary=123456789000000000000987654321`
 2. **`GET /capture` (Single Snapshot):**
    - ส่งภาพนิ่ง 1 เฟรม (JPEG) ความเร็วสูง
-   - แนบ Header `Access-Control-Allow-Origin: *` เพื่อให้ Frontend และ Backend ดึงไปวิเคราะห์ได้โดยตรง
+   - แนบ Header `Access-Control-Allow-Origin: *` และ `Access-Control-Allow-Private-Network: true` เพื่อให้ Frontend และ Backend ดึงไปวิเคราะห์ได้โดยตรง
 3. **`GET /status` (Telemetry JSON):**
    - คืนค่าสถานะฮาร์ดแวร์: IP Address, ความแรงสัญญาณ Wi-Fi (RSSI), Free Heap Memory, และขนาด PSRAM
 
@@ -55,23 +56,18 @@
 
 ---
 
-## 4. สถาปัตยกรรมการเชื่อมต่อเครือข่ายและการล็อก IP แบบถาวร (Networking Architecture & Fixed IP)
+## 4. สถาปัตยกรรมการเชื่อมต่อเครือข่ายและระบบ Dual Stream Mode
 
-ระบบกำหนดและล็อก Static IP ให้กล้อง ESP32-S3 เป็น `192.168.137.65` และ Stream URL เป็น `http://192.168.137.65/stream` แบบถาวร เพื่อให้ระบบตรวจจับทำงานต่อเนื่องโดยไม่มีปัญหา IP เปลี่ยน:
-- **Firmware Level (`esp32_camera_capture.ino`):** ล็อก Static IP `192.168.137.65` ทั้งในโหมด Station (เชื่อมต่อ Wi-Fi Hotspot) และโหมด SoftAP Fallback หาก Wi-Fi หลุด พร้อมระบบ Reconnect อัตโนมัติใน loop ที่คง IP เดิมไว้เสมอ
-- **Frontend Level (`DetectionContext.jsx` & `DetectionPage.jsx`):** ล็อกการอ่านค่าและการจัดเก็บ LocalStorage ไว้ที่ `192.168.137.65` และ `http://192.168.137.65/stream` ป้องกันการเปลี่ยน IP
-- **Backend Level (`config.py` & `detection.py`):** ตั้งค่า `DEFAULT_ESP32_IP = "192.168.137.65"` พร้อม Fallback ปลอดภัยในทุก Endpoint
-
-เพื่อความยืดหยุ่นในการใช้งาน ระบบรองรับการเชื่อมต่อ 2 รูปแบบ:
+ระบบรองรับการเชื่อมต่อ 2 รูปแบบ พร้อมระบบ Auto-Fallback อัตโนมัติ:
 
 ```mermaid
 flowchart TD
     subgraph Browser ["Web Browser (Client)"]
-        UI["React Dashboard"]
+        UI["React Dashboard (Live Detection)"]
     end
 
     subgraph Hardware ["IoT Node"]
-        ESP["ESP32-S3 AI Camera\n(IP: 192.168.137.65)"]
+        ESP["ESP32-S3 AI Camera\n(IP: 192.168.137.65)\nesp_http_server (Multi-socket)"]
     end
 
     subgraph Server ["Backend Host"]
@@ -80,24 +76,29 @@ flowchart TD
     end
 
     UI -->|1. โหมด Direct Stream (ความเร็วสูงสุด Low Latency)| ESP
-    UI -.->|2. โหมด Backend Proxy (กรณี Private Network / CORS)| PROXY
+    UI -.->|2. โหมด Backend Proxy (Auto-Fallback กรณี CORS / PNA)| PROXY
     PROXY --> ESP
     GRAB -->|3. ดึงเฟรมส่งให้ AI| ESP
 ```
 
-### การป้องกันปัญหา Private Network Access / CORS
-บนเบราว์เซอร์ Chrome และ Edge รุ่นใหม่ อาจมีการบล็อกการยิงคำขอจากโดเมนภายนอกเข้าสู่ Local IP (Private Network Access):
-- สามารถสลับมาใช้ Endpoint ของ Backend: `/api/v1/detection/esp32-stream?camera_ip=192.168.137.65`
-- Backend จะทำหน้าที่เป็น Proxy ถ่ายทอดสตรีมแบบ Zero-copy ไปยังหน้าเว็บโดยตรง
+### การป้องกันปัญหา Private Network Access / CORS และ Duplicate Stream
+1. **Auto-Fallback to Backend Proxy:**
+   - เมื่อเชื่อมต่อผ่าน Direct Stream (`http://192.168.137.65/stream`) แล้วเกิดข้อผิดพลาดจากเบราว์เซอร์ (เช่น Chrome PNA / CORS restrictions) หน้าเว็บจะสลับไปใช้ **Backend Proxy** (`/api/v1/detection/esp32-stream?camera_ip=...`) โดยอัตโนมัติทันที
+2. **Single Active Stream Architecture:**
+   - `DetectionContext` ตรวจสอบตำแหน่ง Route ปัจจุบัน: หากผู้ใช้อยู่ที่หน้า `/detection` สตรีมหลัก `#esp32-stream-img` จะทำงานเพียงตัวเดียว และจะไม่มีการ mount `#vigil-persistent-stream-img` ซ้ำซ้อน ป้องกันการแย่งช่องทางสตรีมของ ESP32 อย่างเด็ดขาด
+   - เมื่อผู้ใช้ออกจากหน้า `/detection` (เช่น ไปหน้า `/history` หรือ `/alerts`) แท็กสตรีมซ่อนจะเริ่มทำงานเพื่อเฝ้าระวัง AI ต่อเนื่อง 24/7
 
 ---
 
-## 5. การแก้ปัญหา ESP32 Single-Thread Lock ด้วย Stream-Grab Fallback
+## 5. การแก้ปัญหา ESP32 Single-Thread Lock ด้วย Multi-Socket FreeRTOS Server
 
-### ปัญหาที่พบในบอร์ดไมโครคอนโทรลเลอร์:
-เว็บเซิร์ฟเวอร์บน ESP32 มักทำงานแบบแกนเดียว (Single-threaded) เมื่อหน้าเว็บเปิดดูวิดีโอ `/stream` ค้างอยู่ การส่งคำขอถ่ายภาพ `/capture` ไปพร้อมกันมักจะติดปัญหา Connection Timeout หรือทำให้สตรีมหยุดชะงัก
+### สถาปัตยกรรมใหม่ในเฟิร์มแวร์ (`esp32_camera_capture.ino`):
+- ย้ายจาก Arduino `WebServer.h` (Single-threaded) ไปใช้ **`esp_http_server.h`** (FreeRTOS Multi-socket Server) ของ ESP-IDF
+- รองรับการเปิด Socket พร้อมกันสูงสุด 7 ไคลเอนต์ (`max_open_sockets = 7`) พร้อม `lru_purge_enable = true`
+- การส่งสตรีมใน `handle_stream()` ใช้ `vTaskDelay(pdMS_TO_TICKS(30))` ทำให้ CPU ไม่ถูกบล็อก และสามารถรับคำขอ `/capture` หรือ `/status` ได้พร้อมกันแบบขนาน (Concurrent)
+- เมื่อไคลเอนต์ตัดการเชื่อมต่อ ฟังก์ชันจะตรวจจับและออกจากลูปทันที คืน Frame Buffer สู่หน่วยความจำทันที ป้องกัน Memory Leakage
 
-### วิธีการแก้ไขในระดับ Backend (`fetch_esp32_frame`):
+### วิธีการทำงานในระดับ Backend (`fetch_esp32_frame`):
 ในไฟล์ `backend/app/api/v1/endpoints/detection.py`:
 1. พยายามเรียก `/capture` ด้วย Timeout สั้น (2.5 วินาที)
 2. หากไม่สำเร็จหรือเกิด Timeout ระบบจะสลับไปเชื่อมต่อกับ `/stream` โดยอัตโนมัติ

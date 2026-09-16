@@ -21,28 +21,70 @@ export const buildStreamUrl = (ip, port, path) => {
   return `http://${cleanIp || DEFAULT_IP}${cleanPort}${cleanPath}`;
 };
 
+export const getStreamEndpoint = (ip, port, path, source = "direct") => {
+  if (source === "proxy") {
+    return detectionApi.getEsp32StreamUrl(ip, port);
+  }
+  return buildStreamUrl(ip, port, path);
+};
+
 export const parseStreamUrl = (url) => {
   try {
     const parsed = new URL(url.startsWith("http") ? url : `http://${url}`);
+    // If this is a proxy stream URL, extract the camera_ip and camera_port from query parameters!
+    if (parsed.pathname.includes("/esp32-stream") || parsed.pathname.includes("/esp32-snapshot")) {
+      const qIp = parsed.searchParams.get("camera_ip");
+      const qPort = parsed.searchParams.get("camera_port");
+      return {
+        ip: qIp || DEFAULT_IP,
+        port: qPort && qPort !== "8000" && qPort !== "80" ? qPort : "",
+        path: DEFAULT_PATH,
+        isProxy: true,
+      };
+    }
+    // Direct stream URL
+    const port = parsed.port && parsed.port !== "8000" && parsed.port !== "80" ? parsed.port : "";
     return {
       ip: parsed.hostname || DEFAULT_IP,
-      port: parsed.port || "",
+      port,
       path: parsed.pathname || DEFAULT_PATH,
+      isProxy: false,
     };
   } catch {
-    return { ip: DEFAULT_IP, port: "", path: DEFAULT_PATH };
+    return { ip: DEFAULT_IP, port: "", path: DEFAULT_PATH, isProxy: false };
   }
 };
 
 export function DetectionProvider({ children }) {
-  // Camera Connection & Stream State - Locked permanently to 192.168.137.65 /stream
+  // Clean up any stale/corrupted localStorage from previous port 8000 bug
+  try {
+    const savedUrl = localStorage.getItem("esp32_cam_stream_url");
+    if (savedUrl && (savedUrl.includes(":8000/stream") || savedUrl.includes("camera_port=8000"))) {
+      localStorage.removeItem("esp32_cam_stream_url");
+    }
+  } catch {
+    // ignore
+  }
+
+  // Camera Type: "esp32" | "webcam"
+  const [activeCameraType, setActiveCameraType] = useState(() => {
+    return localStorage.getItem("vigil_active_camera_type") || "esp32";
+  });
+  const [isWebcamActive, setIsWebcamActive] = useState(false);
+
+  // Stream Source: "proxy" (FastAPI backend proxy - Recommended for PNA/CORS bypass) | "direct" (ESP32 direct)
+  const [streamSource, setStreamSource] = useState(() => {
+    const saved = localStorage.getItem("esp32_cam_stream_source");
+    return saved === "direct" || saved === "proxy" ? saved : "proxy";
+  });
   const [cameraIp, setCameraIp] = useState(() => {
-    localStorage.setItem("esp32_cam_ip", DEFAULT_IP);
-    return DEFAULT_IP;
+    return localStorage.getItem("esp32_cam_ip") || DEFAULT_IP;
   });
   const [streamUrl, setStreamUrl] = useState(() => {
-    localStorage.setItem("esp32_cam_stream_url", DEFAULT_STREAM_URL);
-    return DEFAULT_STREAM_URL;
+    const saved = localStorage.getItem("esp32_cam_stream_url");
+    const source = localStorage.getItem("esp32_cam_stream_source") || "proxy";
+    const ip = localStorage.getItem("esp32_cam_ip") || DEFAULT_IP;
+    return saved || getStreamEndpoint(ip, "", DEFAULT_PATH, source);
   });
   const [streamMode, setStreamMode] = useState(() => {
     return localStorage.getItem("esp32_cam_mode") || "live"; // "live" | "demo"
@@ -71,6 +113,25 @@ export function DetectionProvider({ children }) {
 
   // Tracking last alert ID seen from database to detect new background events
   const lastAlertIdRef = useRef(null);
+
+  // Tracking current route to avoid duplicate stream connection on /detection
+  const [isAtDetectionPage, setIsAtDetectionPage] = useState(() => {
+    return typeof window !== "undefined" && window.location.pathname.includes("/detection");
+  });
+
+  useEffect(() => {
+    const checkPath = () => {
+      const onDetection = typeof window !== "undefined" && window.location.pathname.includes("/detection");
+      setIsAtDetectionPage(onDetection);
+    };
+    checkPath();
+    window.addEventListener("popstate", checkPath);
+    const timer = setInterval(checkPath, 600);
+    return () => {
+      window.removeEventListener("popstate", checkPath);
+      clearInterval(timer);
+    };
+  }, []);
 
   // Real-time Database Stats
   const [stats, setStats] = useState({
@@ -176,44 +237,71 @@ export function DetectionProvider({ children }) {
     try {
       let res = null;
 
-      // 1. Grab frame from active visible image on /detection OR persistent background stream on other pages
-      const streamImg =
-        document.getElementById("esp32-stream-img") ||
-        document.getElementById("vigil-persistent-stream-img");
-
-      if (
-        streamMode === "live" &&
-        streamImg &&
-        streamImg.complete &&
-        streamImg.naturalWidth > 0
-      ) {
+      // 1. If Local Webcam is active, grab frame from <video id="vigil-webcam-video">
+      const webcamVideo = document.getElementById("vigil-webcam-video");
+      if (activeCameraType === "webcam" && webcamVideo && webcamVideo.readyState >= 2) {
         try {
           const canvas = document.createElement("canvas");
-          canvas.width = streamImg.naturalWidth || 640;
-          canvas.height = streamImg.naturalHeight || 480;
+          canvas.width = webcamVideo.videoWidth || 640;
+          canvas.height = webcamVideo.videoHeight || 480;
           const ctx = canvas.getContext("2d");
-          ctx.drawImage(streamImg, 0, 0);
+          ctx.drawImage(webcamVideo, 0, 0);
           const blob = await new Promise((resolve) =>
             canvas.toBlob(resolve, "image/jpeg", 0.88)
           );
           if (blob && blob.size > 1000) {
             const formData = new FormData();
-            formData.append("file", blob, "live_stream_frame.jpg");
-            formData.append("camera_id", `ESP32 (${cameraIp})`);
+            formData.append("file", blob, "webcam_live_frame.jpg");
+            formData.append("camera_id", "Webcam (Local PC)");
             formData.append("location", "หน้าบ้าน (Main Entrance)");
             res = await detectionApi.detectImage(formData);
           }
-        } catch (canvasErr) {
-          console.debug("Live stream canvas grab skipped (fallback to API):", canvasErr);
+        } catch (webcamErr) {
+          console.debug("Webcam canvas grab error:", webcamErr);
         }
       }
 
-      // 2. Background or Fallback: Backend ESP32 Proxy Grab (safe and robust)
-      if (!res) {
+      // 2. If ESP32 camera is active, grab frame from visible stream image OR persistent background stream
+      if (!res && activeCameraType === "esp32") {
+        const streamImg =
+          document.getElementById("esp32-stream-img") ||
+          document.getElementById("vigil-persistent-stream-img");
+
+        if (
+          streamMode === "live" &&
+          streamImg &&
+          streamImg.complete &&
+          streamImg.naturalWidth > 0
+        ) {
+          try {
+            const canvas = document.createElement("canvas");
+            canvas.width = streamImg.naturalWidth || 640;
+            canvas.height = streamImg.naturalHeight || 480;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(streamImg, 0, 0);
+            const blob = await new Promise((resolve) =>
+              canvas.toBlob(resolve, "image/jpeg", 0.88)
+            );
+            if (blob && blob.size > 1000) {
+              const formData = new FormData();
+              formData.append("file", blob, "live_stream_frame.jpg");
+              formData.append("camera_id", `ESP32 (${cameraIp})`);
+              formData.append("location", "หน้าบ้าน (Main Entrance)");
+              res = await detectionApi.detectImage(formData);
+            }
+          } catch (canvasErr) {
+            console.debug("Live stream canvas grab skipped (fallback to API):", canvasErr);
+          }
+        }
+      }
+
+      // 3. Fallback: Backend ESP32 Proxy Grab (safe and robust, filter out invalid ports)
+      if (!res && activeCameraType === "esp32") {
         const parsed = parseStreamUrl(streamUrl);
+        const cleanPort = parsed.port && parsed.port !== "8000" && parsed.port !== "80" ? parsed.port : "";
         res = await detectionApi.detectESP32({
           camera_ip: cameraIp,
-          camera_port: parsed.port || "",
+          camera_port: cleanPort,
           camera_path: "/capture",
           location: "หน้าบ้าน (Main Entrance)",
         });
@@ -319,19 +407,46 @@ export function DetectionProvider({ children }) {
     return () => clearInterval(timer);
   }, [isAutoDetect, autoDetectInterval, runDetection]);
 
-  // Camera Settings Update Helper - Enforces permanent 192.168.137.65 /stream
-  const updateCameraSettings = useCallback((newIp, newUrl, newMode) => {
-    const cleanIp = DEFAULT_IP;
-    const finalUrl = DEFAULT_STREAM_URL;
+  // Switch to Backend Proxy Stream helper
+  const switchToProxyStream = useCallback(() => {
+    console.info("[Stream] Switching to Backend Proxy stream (/api/v1/detection/esp32-stream)");
+    setStreamSource("proxy");
+    const proxyUrl = detectionApi.getEsp32StreamUrl(cameraIp);
+    setStreamUrl(proxyUrl);
+    setStreamStatus("connecting");
+    setStreamKey(Date.now());
+    localStorage.setItem("esp32_cam_stream_source", "proxy");
+    localStorage.setItem("esp32_cam_stream_url", proxyUrl);
+  }, [cameraIp]);
+
+  // Switch to Direct ESP32 Stream helper
+  const switchToDirectStream = useCallback(() => {
+    console.info("[Stream] Switching to Direct ESP32 stream");
+    setStreamSource("direct");
+    const directUrl = buildStreamUrl(cameraIp);
+    setStreamUrl(directUrl);
+    setStreamStatus("connecting");
+    setStreamKey(Date.now());
+    localStorage.setItem("esp32_cam_stream_source", "direct");
+    localStorage.setItem("esp32_cam_stream_url", directUrl);
+  }, [cameraIp]);
+
+  // Camera Settings Update Helper - Supports dynamic IP and proxy/direct source
+  const updateCameraSettings = useCallback((newIp, newUrl, newMode, newSource) => {
+    const cleanIp = (newIp || "").trim() || DEFAULT_IP;
+    const finalSource = newSource || (newUrl && newUrl.includes("/esp32-stream") ? "proxy" : "direct");
+    const finalUrl = newUrl || getStreamEndpoint(cleanIp, "", DEFAULT_PATH, finalSource);
     const finalMode = newMode || "live";
 
     setCameraIp(cleanIp);
+    setStreamSource(finalSource);
     setStreamUrl(finalUrl);
     setStreamMode(finalMode);
     setStreamStatus(finalMode === "live" ? "connecting" : "online");
     setStreamKey(Date.now());
 
     localStorage.setItem("esp32_cam_ip", cleanIp);
+    localStorage.setItem("esp32_cam_stream_source", finalSource);
     localStorage.setItem("esp32_cam_stream_url", finalUrl);
     localStorage.setItem("esp32_cam_mode", finalMode);
   }, []);
@@ -369,11 +484,21 @@ export function DetectionProvider({ children }) {
     cameraIp,
     streamUrl,
     streamMode,
+    streamSource,
     streamStatus,
     streamKey,
     setStreamStatus,
     updateCameraSettings,
+    switchToProxyStream,
+    switchToDirectStream,
     reconnectStream,
+    activeCameraType,
+    setActiveCameraType: (type) => {
+      setActiveCameraType(type);
+      localStorage.setItem("vigil_active_camera_type", type);
+    },
+    isWebcamActive,
+    setIsWebcamActive,
     isAutoDetect,
     toggleAutoDetect,
     autoDetectInterval,
@@ -394,17 +519,25 @@ export function DetectionProvider({ children }) {
 
   return (
     <DetectionContext.Provider value={value}>
-      {/* Persistent offscreen live stream image ensuring frame availability across all pages */}
-      {streamMode === "live" && (
+      {/* Persistent offscreen stream ONLY when outside /detection and on ESP32 to prevent duplicate connection lockup */}
+      {activeCameraType === "esp32" && streamMode === "live" && !isAtDetectionPage && (
         <img
           id="vigil-persistent-stream-img"
-          crossOrigin="anonymous"
           key={`persist-${streamUrl}-${streamKey}`}
           src={`${streamUrl}${streamUrl.includes("?") ? "&" : "?"}_t=${streamKey}`}
           alt="ESP32 Background Persistent Stream"
+          crossOrigin="anonymous"
           className="fixed -top-[9999px] -left-[9999px] w-[640px] h-[480px] opacity-0 pointer-events-none"
           onLoad={() => setStreamStatus("online")}
-          onError={() => setStreamStatus("offline")}
+          onError={() => {
+            // Auto-fallback to proxy if direct stream fails
+            if (streamSource === "direct") {
+              console.warn("Background stream failed via direct IP, auto-switching to proxy...");
+              switchToProxyStream();
+            } else {
+              setStreamStatus("offline");
+            }
+          }}
         />
       )}
       {children}

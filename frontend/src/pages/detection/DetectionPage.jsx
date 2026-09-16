@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Users,
   AlertTriangle,
@@ -18,7 +18,6 @@ import {
   Volume2,
   VolumeX,
   Trash2,
-  Check,
   CheckCircle2,
 } from "lucide-react";
 import MetricCard from "../../components/common/MetricCard";
@@ -41,11 +40,18 @@ export default function DetectionPage() {
     cameraIp,
     streamUrl,
     streamMode,
+    streamSource,
     streamStatus,
     streamKey,
     setStreamStatus,
     updateCameraSettings,
+    switchToProxyStream,
+    switchToDirectStream,
     reconnectStream,
+    activeCameraType,
+    setActiveCameraType,
+    isWebcamActive,
+    setIsWebcamActive,
     isAutoDetect,
     toggleAutoDetect,
     isSoundEnabled,
@@ -62,10 +68,72 @@ export default function DetectionPage() {
   const [visitors, setVisitors] = useState(initialVisitors);
   const [historyCategory, setHistoryCategory] = useState("ALL");
   const [showBoxes, setShowBoxes] = useState(true);
-  const [selectedCamera, setSelectedCamera] = useState("cam-1");
   const [currentTime, setCurrentTime] = useState("");
   const [isCapturing, setIsCapturing] = useState(false);
   const [snapshotSuccess, setSnapshotSuccess] = useState(false);
+
+  // Webcam Video Element Ref & State
+  const webcamVideoRef = useRef(null);
+  const [webcamError, setWebcamError] = useState("");
+
+  // Start Webcam Stream
+  const startWebcam = useCallback(async () => {
+    setWebcamError("");
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("เบราว์เซอร์ไม่รองรับการเปิดกล้องเว็บแคม (getUserMedia)");
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+        audio: false,
+      });
+      if (webcamVideoRef.current) {
+        webcamVideoRef.current.srcObject = stream;
+        await webcamVideoRef.current.play().catch(() => {});
+      }
+      setIsWebcamActive(true);
+    } catch (err) {
+      console.warn("Webcam access error:", err);
+      setWebcamError(err.message || "ไม่สามารถเปิดกล้องเว็บแคมได้ (กรุณาอนุญาตสิทธิ์การเข้าถึงกล้อง)");
+      setIsWebcamActive(false);
+    }
+  }, [setIsWebcamActive]);
+
+  // Stop Webcam Stream
+  const stopWebcam = useCallback(() => {
+    if (webcamVideoRef.current && webcamVideoRef.current.srcObject) {
+      const stream = webcamVideoRef.current.srcObject;
+      const tracks = stream.getTracks();
+      tracks.forEach((track) => track.stop());
+      webcamVideoRef.current.srcObject = null;
+    }
+    setIsWebcamActive(false);
+  }, [setIsWebcamActive]);
+
+  // Manage Webcam lifecycle when activeCameraType changes
+  useEffect(() => {
+    if (activeCameraType === "webcam") {
+      startWebcam();
+    } else {
+      stopWebcam();
+    }
+    return () => {
+      stopWebcam();
+    };
+  }, [activeCameraType, startWebcam, stopWebcam]);
+
+  // Proactively check naturalWidth to mark ESP32 stream status "online" even if multipart stream suppresses onLoad
+  useEffect(() => {
+    if (activeCameraType === "esp32" && streamMode === "live") {
+      const interval = setInterval(() => {
+        const img = document.getElementById("esp32-stream-img");
+        if (img && img.naturalWidth > 0 && streamStatus !== "online") {
+          setStreamStatus("online");
+        }
+      }, 500);
+      return () => clearInterval(interval);
+    }
+  }, [activeCameraType, streamMode, streamStatus, streamKey, setStreamStatus]);
 
   // Identify & Train Modal State
   const [isIdentifyModalOpen, setIsIdentifyModalOpen] = useState(false);
@@ -95,9 +163,12 @@ export default function DetectionPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const parsed = parseStreamUrl(streamUrl);
   const [tempIp, setTempIp] = useState(cameraIp);
-  const [tempPort, setTempPort] = useState(parsed.port);
+  const [tempPort, setTempPort] = useState(parsed.port && parsed.port !== "8000" && parsed.port !== "80" ? parsed.port : "");
   const [tempPath, setTempPath] = useState(parsed.path || DEFAULT_PATH);
   const [tempMode, setTempMode] = useState(streamMode);
+  const [tempSource, setTempSource] = useState(streamSource || "proxy");
+  const [isTestingEsp32, setIsTestingEsp32] = useState(false);
+  const [esp32TestResult, setEsp32TestResult] = useState(null);
 
   // Real-time Clock
   useEffect(() => {
@@ -217,9 +288,12 @@ export default function DetectionPage() {
   const handleOpenSettings = () => {
     const currentParsed = parseStreamUrl(streamUrl);
     setTempIp(cameraIp);
-    setTempPort(currentParsed.port);
+    const cleanPort = currentParsed.port && currentParsed.port !== "8000" && currentParsed.port !== "80" ? currentParsed.port : "";
+    setTempPort(cleanPort);
     setTempPath(currentParsed.path || DEFAULT_PATH);
     setTempMode(streamMode);
+    setTempSource(streamSource || "proxy");
+    setEsp32TestResult(null);
     setIsSettingsOpen(true);
   };
 
@@ -228,18 +302,62 @@ export default function DetectionPage() {
     reconnectStream();
   };
 
-  // Save Settings - Permanently locked to 192.168.137.65 /stream
+  // Save Settings - Supports dynamic IP and proxy/direct source
   const handleSaveSettings = (e) => {
     if (e) e.preventDefault();
-    updateCameraSettings(DEFAULT_IP, DEFAULT_STREAM_URL, tempMode);
+    const cleanIp = (tempIp || "").trim() || DEFAULT_IP;
+    const cleanPort = (tempPort || "").trim() === "8000" || (tempPort || "").trim() === "80" ? "" : (tempPort || "").trim();
+    let finalUrl = "";
+    if (tempSource === "proxy") {
+      finalUrl = detectionApi.getEsp32StreamUrl(cleanIp, cleanPort);
+    } else {
+      finalUrl = buildStreamUrl(cleanIp, cleanPort, tempPath);
+    }
+    updateCameraSettings(cleanIp, finalUrl, tempMode, tempSource);
     setIsSettingsOpen(false);
   };
 
-  // Apply quick presets - Always enforces 192.168.137.65 /stream
+  // Apply quick presets - Restores 192.168.137.65 /stream
   const applyPreset = () => {
     setTempIp(DEFAULT_IP);
     setTempPort("");
     setTempPath(DEFAULT_PATH);
+    setTempSource("proxy");
+    setEsp32TestResult(null);
+  };
+
+  // Test ESP32 Connection
+  const handleTestEsp32 = async () => {
+    setIsTestingEsp32(true);
+    setEsp32TestResult(null);
+    try {
+      const cleanIp = (tempIp || "").trim() || DEFAULT_IP;
+      const cleanPort = (tempPort || "").trim() === "8000" || (tempPort || "").trim() === "80" ? "" : (tempPort || "").trim();
+      const res = await detectionApi.detectESP32({
+        camera_ip: cleanIp,
+        camera_port: cleanPort,
+        camera_path: "/capture",
+        location: "ทดสอบการเชื่อมต่อ",
+      });
+      if (res && res.success) {
+        setEsp32TestResult({
+          success: true,
+          message: `✅ กล้อง ESP32 ออนไลน์และเชื่อมต่อสำเร็จ! (ตรวจจับพร้อมทำงาน)`,
+        });
+      } else {
+        setEsp32TestResult({
+          success: false,
+          message: `⚠️ ไม่สามารถดึงภาพจาก ESP32 (${cleanIp}) กรุณาตรวจสอบว่าบอร์ดเปิดและเชื่อมต่อ Wi-Fi อยู่`,
+        });
+      }
+    } catch (err) {
+      setEsp32TestResult({
+        success: false,
+        message: `❌ เกิดข้อผิดพลาด: ${err.response?.data?.detail || err.message}`,
+      });
+    } finally {
+      setIsTestingEsp32(false);
+    }
   };
 
   // Snapshot Button
@@ -373,13 +491,15 @@ export default function DetectionPage() {
 
   const cameras = [
     {
-      id: "cam-1",
-      name: `CAM 01 — Main Entrance (ESP32-CAM: ${cameraIp})`,
+      id: "esp32",
+      name: `ESP32-S3 AI Camera (IP: ${cameraIp})`,
       status: streamStatus === "online" ? "ONLINE" : streamMode === "demo" ? "DEMO" : "OFFLINE",
-      fps: 30,
     },
-    { id: "cam-2", name: "CAM 02 — Office Turnstile (IP Cam)", status: "ONLINE", fps: 28 },
-    { id: "cam-3", name: "CAM 03 — Perimeter Fence (ESP32)", status: "ONLINE", fps: 25 },
+    {
+      id: "webcam",
+      name: "กล้องโน้ตบุ๊ก / Webcam (Local PC)",
+      status: isWebcamActive ? "ONLINE" : "OFFLINE",
+    },
   ];
 
   return (
@@ -497,8 +617,8 @@ export default function DetectionPage() {
             <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#e8e0d5]">
               <div className="flex flex-wrap items-center gap-2">
                 <select
-                  value={selectedCamera}
-                  onChange={(e) => setSelectedCamera(e.target.value)}
+                  value={activeCameraType}
+                  onChange={(e) => setActiveCameraType(e.target.value)}
                   className="bg-[#f7f1e9] border border-[#e8e0d5] text-xs font-bold text-[#1a1a1a] rounded-xl px-3 py-1.5 outline-none cursor-pointer hover:border-[#e8b48a]"
                 >
                   {cameras.map((c) => (
@@ -509,7 +629,19 @@ export default function DetectionPage() {
                 </select>
 
                 {/* Connection Status Badge */}
-                {streamMode === "demo" ? (
+                {activeCameraType === "webcam" ? (
+                  isWebcamActive ? (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-[#e8f5e9] text-[#2e7d32] px-2.5 py-1 rounded-md border border-[#a5d6a7]">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#2e7d32] animate-ping" />
+                      WEBCAM ONLINE
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-[#ffebee] text-[#c62828] px-2.5 py-1 rounded-md border border-[#ffcdd2]">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#c62828]" />
+                      WEBCAM OFFLINE
+                    </span>
+                  )
+                ) : streamMode === "demo" ? (
                   <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-[#fff3e0] text-[#e65100] px-2.5 py-1 rounded-md border border-[#ffe0b2]">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#e65100]" />
                     DEMO MODE
@@ -579,21 +711,29 @@ export default function DetectionPage() {
                   </span>
                 </Button>
 
-                {/* IP Settings Button */}
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleOpenSettings}
-                  icon={SlidersHorizontal}
-                >
-                  <span className="hidden sm:inline">ตั้งค่า IP</span>
-                </Button>
+                {/* IP Settings Button (Only for ESP32) */}
+                {activeCameraType === "esp32" && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleOpenSettings}
+                    icon={SlidersHorizontal}
+                  >
+                    <span className="hidden sm:inline">ตั้งค่า IP</span>
+                  </Button>
+                )}
 
                 {/* Reconnect / Reload Stream Button */}
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleReconnect}
+                  onClick={() => {
+                    if (activeCameraType === "webcam") {
+                      startWebcam();
+                    } else {
+                      handleReconnect();
+                    }
+                  }}
                   title="รีเฟรชการเชื่อมต่อสตรีม"
                   icon={RefreshCw}
                 >
@@ -627,30 +767,77 @@ export default function DetectionPage() {
 
             {/* Live Video Display Container */}
             <div className="relative rounded-2xl overflow-hidden bg-[#141414] aspect-16/10 flex items-center justify-center select-none group">
-              {/* Camera Video Stream Frame */}
-              {streamMode === "live" ? (
-                <img
-                  id="esp32-stream-img"
-                  crossOrigin="anonymous"
-                  key={`${streamUrl}-${streamKey}`}
-                  src={`${streamUrl}${streamUrl.includes("?") ? "&" : "?"}_t=${streamKey}`}
-                  alt="ESP32-CAM Live MJPEG Stream"
-                  className={`w-full h-full object-cover transition-opacity duration-300 ${
-                    streamStatus === "offline" ? "opacity-15" : "opacity-100"
-                  }`}
-                  onLoad={() => setStreamStatus("online")}
-                  onError={() => setStreamStatus("offline")}
-                />
+              {activeCameraType === "esp32" ? (
+                /* ESP32 Camera Feed */
+                streamMode === "live" ? (
+                  <img
+                    id="esp32-stream-img"
+                    key={`${streamUrl}-${streamKey}`}
+                    src={`${streamUrl}${streamUrl.includes("?") ? "&" : "?"}_t=${streamKey}`}
+                    alt="ESP32-CAM Live MJPEG Stream"
+                    crossOrigin="anonymous"
+                    className={`w-full h-full object-cover transition-opacity duration-300 ${
+                      streamStatus === "offline" ? "opacity-15" : "opacity-100"
+                    }`}
+                    onLoad={() => setStreamStatus("online")}
+                    onError={() => {
+                      // Auto-fallback to backend proxy stream if direct connection fails
+                      if (streamSource === "direct") {
+                        console.warn("[Stream] Direct connection error on DetectionPage, auto-switching to Backend Proxy...");
+                        switchToProxyStream();
+                      } else {
+                        setStreamStatus("offline");
+                      }
+                    }}
+                  />
+                ) : (
+                  <img
+                    src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=1000&auto=format&fit=crop&q=80"
+                    alt="Demo Camera Feed"
+                    className="w-full h-full object-cover opacity-90 transition-all duration-300"
+                  />
+                )
               ) : (
-                <img
-                  src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=1000&auto=format&fit=crop&q=80"
-                  alt="Demo Camera Feed"
-                  className="w-full h-full object-cover opacity-90 transition-all duration-300"
+                /* Local PC Webcam Feed */
+                <video
+                  ref={webcamVideoRef}
+                  id="vigil-webcam-video"
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
                 />
               )}
 
-              {/* OFFLINE / CONNECTION ERROR OVERLAY */}
-              {streamMode === "live" && streamStatus === "offline" && (
+              {/* WEBCAM ERROR OVERLAY */}
+              {activeCameraType === "webcam" && !isWebcamActive && webcamError && (
+                <div className="absolute inset-0 bg-[#0c0e12]/92 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center z-20 animate-in fade-in duration-200">
+                  <div className="w-14 h-14 rounded-2xl bg-[#c62828]/15 border border-[#c62828]/30 flex items-center justify-center mb-3">
+                    <Radio className="w-7 h-7 text-[#ef5350]" />
+                  </div>
+                  <h3 className="text-base sm:text-lg font-bold text-white mb-1.5">
+                    ไม่สามารถเปิดกล้องเว็บแคมได้
+                  </h3>
+                  <p className="text-xs text-white/70 max-w-md mb-5 leading-relaxed">
+                    {webcamError}
+                  </p>
+                  <div className="flex items-center gap-2.5">
+                    <Button variant="primary" size="sm" icon={RefreshCw} onClick={startWebcam}>
+                      ลองเปิดใหม่อีกครั้ง (Retry)
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setActiveCameraType("esp32")}
+                    >
+                      สลับไปใช้กล้อง ESP32
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* ESP32 OFFLINE / CONNECTION ERROR OVERLAY */}
+              {activeCameraType === "esp32" && streamMode === "live" && streamStatus === "offline" && (
                 <div className="absolute inset-0 bg-[#0c0e12]/92 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center z-20 animate-in fade-in duration-200">
                   <div className="w-14 h-14 rounded-2xl bg-[#c62828]/15 border border-[#c62828]/30 flex items-center justify-center mb-3">
                     <Radio className="w-7 h-7 text-[#ef5350]" />
@@ -674,8 +861,29 @@ export default function DetectionPage() {
                     กรุณาตรวจสอบว่า ESP32 เปิดทำงานและเชื่อมต่อ Wi-Fi วงเดียวกัน (IP: {cameraIp})
                   </p>
                   <div className="flex flex-wrap items-center justify-center gap-2.5">
+                    {streamSource === "direct" ? (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        icon={Radio}
+                        className="bg-[#e65100] hover:bg-[#bf360c] text-white shadow-xs"
+                        onClick={switchToProxyStream}
+                      >
+                        สลับใช้ Backend Proxy (แนะนำแก้ PNA/CORS)
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        icon={Radio}
+                        className="bg-[#2e7d32] hover:bg-[#1b5e20] text-white shadow-xs"
+                        onClick={switchToDirectStream}
+                      >
+                        สลับใช้สตรีมตรง (Direct ESP32)
+                      </Button>
+                    )}
                     <Button
-                      variant="primary"
+                      variant="secondary"
                       size="sm"
                       icon={RefreshCw}
                       onClick={handleReconnect}
@@ -688,7 +896,14 @@ export default function DetectionPage() {
                       icon={SlidersHorizontal}
                       onClick={handleOpenSettings}
                     >
-                      เปลี่ยน IP กล้อง
+                      เปลี่ยน IP / ตั้งค่ากล้อง
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setActiveCameraType("webcam")}
+                    >
+                      สลับใช้กล้องโน้ตบุ๊ก (Webcam)
                     </Button>
                     <Button
                       variant="outline"
@@ -1018,65 +1233,134 @@ export default function DetectionPage() {
         maxWidth="max-w-lg"
       >
         <form onSubmit={handleSaveSettings} className="flex flex-col gap-5">
-          {/* Fixed Camera Stream Banner */}
+          {/* Camera Stream Mode Selection */}
           <div className="flex flex-col gap-2">
             <span className="text-xs font-bold text-[#1a1a1a] uppercase tracking-wider">
-              ค่าสตรีมกล้องที่ล็อกคงที่ (Permanent Fixed Stream)
+              โหมดการสตรีม (Streaming Source)
             </span>
-            <div className="p-3.5 rounded-2xl border border-[#e8b48a] bg-[#f5c9a8]/20 flex items-center justify-between">
-              <div className="flex flex-col gap-0.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-[#2e7d32] animate-pulse" />
-                  <span className="text-xs font-bold text-[#1a1a1a]">DFRobot ESP32-S3 AI Camera (OV3660)</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <label
+                className={`p-3 rounded-2xl border flex flex-col gap-1 cursor-pointer transition-all ${
+                  tempSource === "proxy"
+                    ? "border-[#1565c0] bg-[#e3f2fd]/60 shadow-xs"
+                    : "border-[#e8e0d5] bg-white hover:border-[#90caf9]"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#1565c0] flex items-center gap-1.5">
+                    <Radio className="w-3.5 h-3.5" />
+                    Backend Proxy Stream
+                  </span>
+                  <input
+                    type="radio"
+                    name="streamSource"
+                    value="proxy"
+                    checked={tempSource === "proxy"}
+                    onChange={() => setTempSource("proxy")}
+                    className="accent-[#1565c0]"
+                  />
                 </div>
-                <span className="text-xs font-mono font-bold text-[#e65100]">
-                  http://192.168.137.65/stream
-                </span>
                 <span className="text-[11px] text-[#6b6b6b]">
-                  กำหนด Static IP 192.168.137.65 แบบถาวร ไม่เปลี่ยนแม้รีสตาร์ตกล้อง
+                  เสถียรสูงสุด • ผ่านเซิร์ฟเวอร์ FastAPI • ป้องกันปัญหา CORS และ Private Network Access 100%
                 </span>
-              </div>
-              <span className="px-2.5 py-1 text-[11px] font-bold rounded-xl bg-[#2e7d32] text-white flex items-center gap-1 shrink-0">
-                <Check className="w-3.5 h-3.5" />
-                <span>LOCKED</span>
-              </span>
+              </label>
+
+              <label
+                className={`p-3 rounded-2xl border flex flex-col gap-1 cursor-pointer transition-all ${
+                  tempSource === "direct"
+                    ? "border-[#2e7d32] bg-[#e8f5e9]/60 shadow-xs"
+                    : "border-[#e8e0d5] bg-white hover:border-[#a5d6a7]"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#2e7d32] flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5" />
+                    Direct Stream (ESP32)
+                  </span>
+                  <input
+                    type="radio"
+                    name="streamSource"
+                    value="direct"
+                    checked={tempSource === "direct"}
+                    onChange={() => setTempSource("direct")}
+                    className="accent-[#2e7d32]"
+                  />
+                </div>
+                <span className="text-[11px] text-[#6b6b6b]">
+                  ความเร็วสูงสุด Low Latency • ดึงภาพสดตรงจาก IP ของบอร์ด ESP32
+                </span>
+              </label>
             </div>
           </div>
 
           <div className="flex flex-col gap-3">
             <Input
-              label="IP Address กล้อง ESP32 (ล็อกคงที่)"
-              value="192.168.137.65"
-              disabled
+              label="IP Address ของกล้อง ESP32"
+              value={tempIp}
+              onChange={(e) => setTempIp(e.target.value)}
               placeholder="192.168.137.65"
             />
             <div className="grid grid-cols-2 gap-3">
               <Input
-                label="Port"
-                value="80 (Default)"
-                disabled
+                label="Port (ค่าเริ่มต้นเว้นว่างหรือ 80)"
+                value={tempPort}
+                onChange={(e) => setTempPort(e.target.value)}
                 placeholder="80"
               />
               <Input
-                label="Path ของสตรีม (ล็อกคงที่)"
-                value="/stream"
-                disabled
+                label="Path ของสตรีม (ค่าเริ่มต้น /stream)"
+                value={tempPath}
+                onChange={(e) => setTempPath(e.target.value)}
                 placeholder="/stream"
               />
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setIsSettingsOpen(false)}
+          {/* Test Connection Result Alert */}
+          {esp32TestResult && (
+            <div
+              className={`p-3 rounded-xl border text-xs font-semibold flex items-center gap-2 ${
+                esp32TestResult.success
+                  ? "bg-[#e8f5e9] border-[#a5d6a7] text-[#2e7d32]"
+                  : "bg-[#ffebee] border-[#ef9a9a] text-[#c62828]"
+              }`}
             >
-              ยกเลิก
-            </Button>
-            <Button variant="primary" size="sm" type="submit">
-              บันทึกการตั้งค่า
-            </Button>
+              <span>{esp32TestResult.message}</span>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#e8e0d5]">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={applyPreset}
+                className="text-xs font-bold text-[#e65100] hover:underline cursor-pointer"
+              >
+                คืนค่าเริ่มต้น
+              </button>
+              <span className="text-[#e8e0d5]">•</span>
+              <button
+                type="button"
+                onClick={handleTestEsp32}
+                disabled={isTestingEsp32}
+                className="text-xs font-bold text-[#1565c0] hover:underline cursor-pointer inline-flex items-center gap-1"
+              >
+                <RefreshCw className={`w-3 h-3 ${isTestingEsp32 ? "animate-spin" : ""}`} />
+                <span>{isTestingEsp32 ? "กำลังทดสอบ..." : "ทดสอบการเชื่อมต่อ ESP32"}</span>
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsSettingsOpen(false)}
+              >
+                ยกเลิก
+              </Button>
+              <Button variant="primary" size="sm" type="submit">
+                บันทึกการตั้งค่า
+              </Button>
+            </div>
           </div>
         </form>
       </Modal>

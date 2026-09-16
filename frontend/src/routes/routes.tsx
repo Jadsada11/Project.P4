@@ -3,6 +3,7 @@ import MainLayout from "../components/layout/MainLayout";
 import AuthLayout from "../components/layout/AuthLayout";
 import ProtectedRoute from "../components/guards/ProtectedRoute";
 import GuestRoute from "../components/guards/GuestRoute";
+import RouteErrorBoundary from "../components/common/RouteErrorBoundary";
 
 import LandingPage from "../pages/landing/LandingPage";
 import DetectionPage from "../pages/detection/DetectionPage";
@@ -17,6 +18,7 @@ const router = createBrowserRouter([
   {
     // ต้อง Login ก่อนถึงจะเข้าหน้าเหล่านี้ได้ — ถ้ายังไม่ Login เด้งไป /login
     element: <ProtectedRoute />,
+    errorElement: <RouteErrorBoundary />,
     children: [
       {
         element: <MainLayout />,
@@ -34,6 +36,7 @@ const router = createBrowserRouter([
   {
     // ต้อง Logout ก่อนถึงจะเข้าหน้า Login/Signup ได้ — ถ้า Login อยู่แล้วเด้งไป /
     element: <GuestRoute />,
+    errorElement: <RouteErrorBoundary />,
     children: [
       {
         element: <AuthLayout />,

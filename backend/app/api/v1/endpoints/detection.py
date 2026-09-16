@@ -313,14 +313,19 @@ async def fetch_esp32_frame(clean_ip: str, port_str: str = "", path_str: str = "
     """
     ดึงภาพ 1 เฟรมจาก ESP32-CAM อย่างชาญฉลาด:
     1. ลองดึงจาก /capture ด้วย timeout สั้น (1.5 วินาที)
-    2. หาก /capture ไม่ตอบสนอง ให้ดึง 1 เฟรมแรกจาก /stream แทนทันที (2.0 วินาที)
+    2. หาก /capture ไม่ตอบสนอง ให้ดึง 1 เฟรมแรกจาก /stream แทนทันที (2.5 วินาที)
     """
+    # ป้องกันการส่งพอร์ต 8000 หรือ 80 เข้าไปใน URL ของ ESP32
+    if port_str in (":80", ":8000"):
+        port_str = ""
+
     target_url = f"http://{clean_ip}{port_str}{path_str}"
 
     # 1. พยายามดึงภาพผ่าน /capture
     try:
-        async with httpx.AsyncClient(timeout=1.5) as client:
-            resp = await client.get(target_url)
+        timeout_cfg = httpx.Timeout(1.5, connect=1.0)
+        async with httpx.AsyncClient(timeout=timeout_cfg) as client:
+            resp = await client.get(target_url, headers={"Connection": "close"})
             if resp.status_code == 200 and len(resp.content) > 500:
                 return resp.content
     except Exception as e:
@@ -329,16 +334,19 @@ async def fetch_esp32_frame(clean_ip: str, port_str: str = "", path_str: str = "
     # 2. Fallback: ดึง 1 เฟรม JPEG จาก /stream ทันที
     stream_url = f"http://{clean_ip}{port_str}/stream"
     try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            async with client.stream("GET", stream_url) as stream_resp:
+        timeout_cfg = httpx.Timeout(2.5, connect=1.2)
+        async with httpx.AsyncClient(timeout=timeout_cfg) as client:
+            async with client.stream("GET", stream_url, headers={"Connection": "close"}) as stream_resp:
                 if stream_resp.status_code == 200:
                     chunks = b""
-                    async for chunk in stream_resp.aiter_bytes():
+                    async for chunk in stream_resp.aiter_bytes(chunk_size=4096):
                         chunks += chunk
                         start = chunks.find(b"\xff\xd8")
                         end = chunks.find(b"\xff\xd9", start + 2) if start != -1 else -1
                         if start != -1 and end != -1:
                             return chunks[start:end + 2]
+                        if len(chunks) > 250000:
+                            break
     except Exception as se:
         print(f"[ESP32 Frame] /stream fallback grab failed at {stream_url}: {se}")
 
@@ -356,7 +364,8 @@ async def detect_from_esp32(
     บันทึกประวัติ (History) และส่งแจ้งเตือน (Alert) ลงฐานข้อมูล
     """
     clean_ip = (req.camera_ip.strip().replace("http://", "").replace("https://", "").split("/")[0]) or "192.168.137.65"
-    port_str = f":{req.camera_port.strip()}" if req.camera_port and req.camera_port.strip() else ""
+    raw_port = (req.camera_port or "").strip()
+    port_str = f":{raw_port}" if raw_port and raw_port not in ("80", "8000") else ""
     path_str = req.camera_path if req.camera_path and req.camera_path.startswith("/") else f"/{req.camera_path or 'capture'}"
 
     image_bytes = await fetch_esp32_frame(clean_ip, port_str, path_str)
@@ -405,18 +414,24 @@ async def get_esp32_snapshot(
     หลีกเลี่ยงปัญหา CORS และ Private Network Access restrictions บนเบราว์เซอร์
     """
     clean_ip = (camera_ip.strip().replace("http://", "").replace("https://", "").split("/")[0]) or "192.168.137.65"
-    port_str = f":{camera_port.strip()}" if camera_port and camera_port.strip() else ""
+    raw_port = (camera_port or "").strip()
+    port_str = f":{raw_port}" if raw_port and raw_port not in ("80", "8000") else ""
     path_str = camera_path if camera_path and camera_path.startswith("/") else f"/{camera_path or 'capture'}"
 
     image_bytes = await fetch_esp32_frame(clean_ip, port_str, path_str)
+    cors_headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Private-Network": "true",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+    }
     if image_bytes:
         return Response(
             content=image_bytes,
             media_type="image/jpeg",
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-            },
+            headers=cors_headers,
         )
 
     # Fallback simulated frame if ESP32 is offline
@@ -427,7 +442,7 @@ async def get_esp32_snapshot(
         content=buf.getvalue(),
         media_type="image/jpeg",
         headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
+            **cors_headers,
             "X-Camera-Status": "simulated",
         },
     )
@@ -443,23 +458,38 @@ async def get_esp32_stream(
     ป้องกันปัญหา Private Network Access / CORS restrictions บนเบราว์เซอร์ 100%
     """
     clean_ip = (camera_ip.strip().replace("http://", "").replace("https://", "").split("/")[0]) or "192.168.137.65"
-    port_str = f":{camera_port.strip()}" if camera_port and camera_port.strip() else ""
+    raw_port = (camera_port or "").strip()
+    port_str = f":{raw_port}" if raw_port and raw_port not in ("80", "8000") else ""
     target_url = f"http://{clean_ip}{port_str}/stream"
 
     async def stream_generator():
+        boundary_marker = b"--123456789000000000000987654321\r\n"
+        # Prepend initial boundary marker for RFC 2046 compliant multipart parsing in browsers
+        yield boundary_marker
         try:
-            timeout_cfg = httpx.Timeout(connect=3.0, read=None, write=None, pool=None)
+            timeout_cfg = httpx.Timeout(connect=4.0, read=None, write=None, pool=None)
             async with httpx.AsyncClient(timeout=timeout_cfg) as client:
-                async with client.stream("GET", target_url) as resp:
-                    async for chunk in resp.aiter_raw():
+                async with client.stream(
+                    "GET",
+                    target_url,
+                    headers={"Accept": "multipart/x-mixed-replace, image/*, */*"}
+                ) as resp:
+                    if resp.status_code != 200:
+                        print(f"[Stream Proxy] Camera {target_url} returned HTTP {resp.status_code}")
+                        return
+                    async for chunk in resp.aiter_bytes(chunk_size=4096):
                         yield chunk
         except Exception as e:
-            print(f"[Stream Proxy] Stream ended or connection failed for {target_url}: {e}")
+            print(f"[Stream Proxy] Stream ended or connection closed for {target_url}: {e}")
 
     return StreamingResponse(
         stream_generator(),
-        media_type="multipart/x-mixed-replace; boundary=frame",
+        media_type="multipart/x-mixed-replace; boundary=123456789000000000000987654321",
         headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Private-Network": "true",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
         },
