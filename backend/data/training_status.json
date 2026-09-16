@@ -1,20 +1,19 @@
 {
   "status": "ready",
   "model_name": "MobileNetV3 + Cosine Metric Learning",
-  "last_trained": "2026-09-08T08:02:45.956354+00:00",
-  "total_persons": 2,
-  "total_samples": 27,
-  "average_accuracy": 95.7,
-  "loss": 0.043,
+  "last_trained": "2026-09-16T12:55:44.002442+00:00",
+  "total_persons": 1,
+  "total_samples": 11,
+  "average_accuracy": 98.9,
+  "loss": 0.011,
   "inference_speed_ms": 13.8,
-  "elapsed_ms": 959,
+  "elapsed_ms": 440,
   "logs": [
-    "[15:02:44] [TRAINER] Starting Full Face Metric Retraining Pipeline...",
-    "[15:02:44] [MODEL] Initializing MobileNetV3-Small (576-dim L2 Metric Extractor)...",
-    "[15:02:44] [DATABASE] Found 2 active identity profiles in SQLite.",
-    "[15:02:45] [TRAINED] #1 thanakorn nillamai (delivery): 11 images (22 augmented) | Intra-consistency: 98.0%",
-    "[15:02:45] [TRAINED] #2 nun (household): 16 images (32 augmented) | Intra-consistency: 93.3%",
-    "[15:02:45] [CENTROID] Normalized 2 person identity vectors into L2 space.",
-    "[15:02:45] [COMPLETE] Retraining finished in 959ms. Overall Accuracy: 95.7%."
+    "[19:55:43] [TRAINER] Starting Full Face Metric Retraining Pipeline...",
+    "[19:55:43] [MODEL] Initializing MobileNetV3-Small (576-dim L2 Metric Extractor)...",
+    "[19:55:43] [DATABASE] Found 1 active identity profiles in SQLite.",
+    "[19:55:43] [TRAINED] #1 nun (delivery): 11 images (22 augmented) | Intra-consistency: 98.9%",
+    "[19:55:44] [CENTROID] Normalized 1 person identity vectors into L2 space.",
+    "[19:55:44] [COMPLETE] Retraining finished in 440ms. Overall Accuracy: 98.9%."
   ]
 }

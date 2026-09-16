@@ -272,8 +272,8 @@ Interactive Swagger UI: `http://localhost:8000/docs`
 
 #### ล้างการแจ้งเตือนทั้งหมดหรือตามเงื่อนไข (Clear Alerts)
 - `DELETE /api/v1/alerts`
-- Query Params: `category` (optional), `read_only` (bool, optional)
-- Response `200 OK`: `{"message": "ลบการแจ้งเตือนสำเร็จ 5 รายการ", "deleted_count": 5}`
+- Query Params: `category` (optional), `read_only` (bool, optional), `unread_only` (bool, optional)
+- Response `200 OK`: `{"message": "ลบการแจ้งเตือนสำเร็จ 5 รายการ", "deleted_count": 5, "count": 5}`
 
 ---
 

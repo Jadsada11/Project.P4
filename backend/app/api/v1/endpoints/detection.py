@@ -125,18 +125,14 @@ def clear_detection_history(
     db: Session = Depends(get_db),
 ):
     """
-<<<<<<< HEAD
     ล้างประวัติการตรวจจับทั้งหมด หรือตามหมวดหมู่ที่เลือก
-=======
-    ล้างข้อมูลประวัติการตรวจจับทั้งหมด หรือกรองตามหมวดหมู่
->>>>>>> 260fd4a03c97f6988bbee365acab77fd6d4d31f2
     """
     query = db.query(DetectionHistory)
     if category and category.strip() and category.upper() != "ALL":
         query = query.filter(DetectionHistory.category == category.lower())
 
-<<<<<<< HEAD
     records_to_delete = query.all()
+    deleted_count = len(records_to_delete)
     history_ids = [r.id for r in records_to_delete]
     if history_ids:
         # ปลด Foreign Key ในตาราง alerts เพื่อป้องกัน Foreign Key constraint error
@@ -144,22 +140,14 @@ def clear_detection_history(
             {"detection_id": None}, synchronize_session=False
         )
 
-    deleted_count = query.delete(synchronize_session=False)
-    db.commit()
-    return {"message": f"Deleted {deleted_count} detection records", "count": deleted_count}
-=======
-    records = query.all()
-    deleted_count = len(records)
-    for r in records:
-        # Nullify foreign key in alerts first to prevent FK constraint failure
-        db.query(Alert).filter(Alert.detection_id == r.id).update({"detection_id": None})
+    for r in records_to_delete:
         db.delete(r)
     db.commit()
     return {
         "message": f"ลบประวัติการตรวจจับสำเร็จ {deleted_count} รายการ",
         "deleted_count": deleted_count,
+        "count": deleted_count,
     }
->>>>>>> 260fd4a03c97f6988bbee365acab77fd6d4d31f2
 
 
 @router.delete("/history/{history_id}", status_code=status.HTTP_204_NO_CONTENT, summary="ลบประวัติการตรวจจับ")
@@ -167,13 +155,8 @@ def delete_detection_history(history_id: int, db: Session = Depends(get_db)):
     record = db.query(DetectionHistory).filter(DetectionHistory.id == history_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="Detection record not found")
-<<<<<<< HEAD
 
     # ปลด Foreign Key ในตาราง alerts ก่อนลบ
-=======
-    
-    # Nullify foreign key in alerts
->>>>>>> 260fd4a03c97f6988bbee365acab77fd6d4d31f2
     db.query(Alert).filter(Alert.detection_id == history_id).update({"detection_id": None})
     db.delete(record)
     db.commit()
@@ -491,7 +474,6 @@ async def get_esp32_stream(
         # Prepend initial boundary marker for RFC 2046 compliant multipart parsing in browsers
         yield boundary_marker
         try:
-<<<<<<< HEAD
             timeout_cfg = httpx.Timeout(connect=4.0, read=None, write=None, pool=None)
             async with httpx.AsyncClient(timeout=timeout_cfg) as client:
                 async with client.stream(
@@ -502,16 +484,7 @@ async def get_esp32_stream(
                     if resp.status_code != 200:
                         print(f"[Stream Proxy] Camera {target_url} returned HTTP {resp.status_code}")
                         return
-                    async for chunk in resp.aiter_bytes(chunk_size=4096):
-=======
-            timeout_cfg = httpx.Timeout(connect=3.5, read=None, write=None, pool=None)
-            async with httpx.AsyncClient(timeout=timeout_cfg) as client:
-                async with client.stream("GET", target_url) as resp:
-                    if resp.status_code != 200:
-                        print(f"[Stream Proxy] ESP32 returned status {resp.status_code}")
-                        return
                     async for chunk in resp.aiter_raw():
->>>>>>> ece3a086582b6fc8774994a766bab5882bda4fad
                         yield chunk
         except asyncio.CancelledError:
             print(f"[Stream Proxy] Client disconnected, cleanly closed proxy to {target_url}")

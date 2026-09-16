@@ -8,10 +8,7 @@ import {
   Clock,
   Sparkles,
   Trash2,
-<<<<<<< HEAD
-=======
   AlertTriangle,
->>>>>>> 260fd4a03c97f6988bbee365acab77fd6d4d31f2
 } from "lucide-react";
 import Button from "../../components/common/Button";
 import Badge from "../../components/common/Badge";
@@ -227,48 +224,6 @@ export default function AlertsPage() {
     }
   };
 
-<<<<<<< HEAD
-  const handleDeleteAlert = async (e, id) => {
-    e.stopPropagation();
-    if (!window.confirm("คุณต้องการลบรายการแจ้งเตือนนี้หรือไม่?")) return;
-
-    // Optimistic UI update
-    setAlerts((prev) => prev.filter((a) => a.id !== id));
-
-    try {
-      await alertsApi.deleteAlert(id);
-      window.dispatchEvent(new Event("vigil-alerts-updated"));
-    } catch (err) {
-      console.warn("Failed to delete alert on server:", err);
-      loadAlerts();
-    }
-  };
-
-  const handleClearAlerts = async () => {
-    const isFiltered = selectedCategory !== "ALL";
-    const count = isFiltered ? filteredAlerts.length : alerts.length;
-    if (count === 0) return;
-
-    const confirmMsg = isFiltered
-      ? `คุณต้องการลบการแจ้งเตือนในหมวดหมู่นี้ทั้งหมด (${count} รายการ) หรือไม่?`
-      : `คุณต้องการลบการแจ้งเตือนทั้งหมด (${count} รายการ) หรือไม่?`;
-
-    if (!window.confirm(confirmMsg)) return;
-
-    // Optimistic UI update
-    if (isFiltered) {
-      setAlerts((prev) => prev.filter((a) => a.category !== selectedCategory));
-    } else {
-      setAlerts([]);
-    }
-
-    try {
-      await alertsApi.clearAlerts(isFiltered ? selectedCategory : undefined);
-      window.dispatchEvent(new Event("vigil-alerts-updated"));
-    } catch (err) {
-      console.warn("Failed to clear alerts on server:", err);
-      loadAlerts();
-=======
   const handleConfirmDeleteAlert = async () => {
     if (!alertToDelete) return;
     setIsDeletingAlert(true);
@@ -312,7 +267,6 @@ export default function AlertsPage() {
       await loadAlerts();
     } finally {
       setIsClearingAlerts(false);
->>>>>>> 260fd4a03c97f6988bbee365acab77fd6d4d31f2
     }
   };
 
@@ -373,16 +327,6 @@ export default function AlertsPage() {
           )}
 
           {alerts.length > 0 && (
-<<<<<<< HEAD
-            <button
-              onClick={handleClearAlerts}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white hover:bg-[#ffebee] text-[#c62828] border border-[#e8e0d5] hover:border-[#ef9a9a] transition-all cursor-pointer shadow-2xs"
-              title="ลบรายการแจ้งเตือนทั้งหมด"
-            >
-              <Trash2 className="w-3.5 h-3.5 text-[#c62828]" />
-              <span className="hidden sm:inline">ลบทั้งหมด</span>
-            </button>
-=======
             <Button
               variant="secondary"
               size="sm"
@@ -392,7 +336,6 @@ export default function AlertsPage() {
             >
               <span className="hidden sm:inline">ล้างการแจ้งเตือน</span>
             </Button>
->>>>>>> 260fd4a03c97f6988bbee365acab77fd6d4d31f2
           )}
         </div>
       </div>
@@ -505,17 +448,12 @@ export default function AlertsPage() {
 
                 <button
                   type="button"
-<<<<<<< HEAD
-                  onClick={(e) => handleDeleteAlert(e, alert.id)}
-                  className="p-1.5 rounded-xl text-[#9e9e9e] hover:text-[#c62828] hover:bg-[#ffebee] border border-transparent hover:border-[#ffcdd2] transition-all cursor-pointer shrink-0"
-=======
                   onClick={(e) => {
                     e.stopPropagation();
                     setAlertToDelete(alert);
                     setIsDeleteModalOpen(true);
                   }}
                   className="p-1.5 rounded-xl text-[#9e9e9e] hover:text-[#c62828] hover:bg-[#ffebee] border border-transparent hover:border-[#ef9a9a] transition-all cursor-pointer"
->>>>>>> 260fd4a03c97f6988bbee365acab77fd6d4d31f2
                   title="ลบการแจ้งเตือนนี้"
                 >
                   <Trash2 className="w-4 h-4" />

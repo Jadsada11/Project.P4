@@ -133,19 +133,19 @@ export const alertsApi = {
     api.put(`/alerts/${id}/read`, { is_read: isRead }).then((res) => res.data),
   markAllRead: () => api.put("/alerts/read-all").then((res) => res.data),
   deleteAlert: (id) => api.delete(`/alerts/${id}`).then((res) => res.data),
-<<<<<<< HEAD
-  clearAlerts: (category = "", readOnly = false) =>
-=======
-  clearAlerts: ({ category = "", readOnly = false } = {}) =>
->>>>>>> 260fd4a03c97f6988bbee365acab77fd6d4d31f2
-    api
+  clearAlerts: (arg1 = "", arg2 = false) => {
+    const isObj = typeof arg1 === "object" && arg1 !== null;
+    const category = isObj ? arg1.category : arg1;
+    const readOnly = isObj ? arg1.readOnly : arg2;
+    return api
       .delete("/alerts", {
         params: {
           category: category && category !== "ALL" ? category : undefined,
           read_only: readOnly ? true : undefined,
         },
       })
-      .then((res) => res.data),
+      .then((res) => res.data);
+  },
 };
 
 // ==========================================
