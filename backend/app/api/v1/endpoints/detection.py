@@ -1,5 +1,6 @@
 import io
 import time
+import asyncio
 from datetime import datetime, timezone, date
 from typing import List, Optional
 import httpx
@@ -117,14 +118,43 @@ def get_detection_history(
     return records
 
 
+@router.delete("/history", summary="ลบประวัติการตรวจจับทั้งหมด หรือตามหมวดหมู่")
+def clear_detection_history(
+    category: Optional[str] = Query(None, description="กรองตามประเภท: 'household', 'delivery', 'stranger'"),
+    db: Session = Depends(get_db),
+):
+    """
+    ล้างประวัติการตรวจจับทั้งหมด หรือตามหมวดหมู่ที่เลือก
+    """
+    query = db.query(DetectionHistory)
+    if category and category.strip() and category.upper() != "ALL":
+        query = query.filter(DetectionHistory.category == category.lower())
+
+    records_to_delete = query.all()
+    history_ids = [r.id for r in records_to_delete]
+    if history_ids:
+        # ปลด Foreign Key ในตาราง alerts เพื่อป้องกัน Foreign Key constraint error
+        db.query(Alert).filter(Alert.detection_id.in_(history_ids)).update(
+            {"detection_id": None}, synchronize_session=False
+        )
+
+    deleted_count = query.delete(synchronize_session=False)
+    db.commit()
+    return {"message": f"Deleted {deleted_count} detection records", "count": deleted_count}
+
+
 @router.delete("/history/{history_id}", status_code=status.HTTP_204_NO_CONTENT, summary="ลบประวัติการตรวจจับ")
 def delete_detection_history(history_id: int, db: Session = Depends(get_db)):
     record = db.query(DetectionHistory).filter(DetectionHistory.id == history_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="Detection record not found")
+
+    # ปลด Foreign Key ในตาราง alerts ก่อนลบ
+    db.query(Alert).filter(Alert.detection_id == history_id).update({"detection_id": None})
     db.delete(record)
     db.commit()
     return None
+
 
 
 @router.put("/history/{history_id}/identify", response_model=IdentifyPersonResponse, summary="ระบุตัวตนและเทรนข้อมูลบุคคลจากประวัติการตรวจจับ")
@@ -430,11 +460,16 @@ async def get_esp32_stream(
 
     async def stream_generator():
         try:
-            timeout_cfg = httpx.Timeout(connect=3.0, read=None, write=None, pool=None)
+            timeout_cfg = httpx.Timeout(connect=3.5, read=None, write=None, pool=None)
             async with httpx.AsyncClient(timeout=timeout_cfg) as client:
                 async with client.stream("GET", target_url) as resp:
+                    if resp.status_code != 200:
+                        print(f"[Stream Proxy] ESP32 returned status {resp.status_code}")
+                        return
                     async for chunk in resp.aiter_raw():
                         yield chunk
+        except asyncio.CancelledError:
+            print(f"[Stream Proxy] Client disconnected, cleanly closed proxy to {target_url}")
         except Exception as e:
             print(f"[Stream Proxy] Stream ended or connection failed for {target_url}: {e}")
 

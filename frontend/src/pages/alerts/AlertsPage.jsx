@@ -8,6 +8,7 @@ import {
   Clock,
   Filter,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import Button from "../../components/common/Button";
 import Badge from "../../components/common/Badge";
@@ -208,8 +209,52 @@ export default function AlertsPage() {
 
     try {
       await alertsApi.markAllRead();
+      window.dispatchEvent(new Event("vigil-alerts-updated"));
     } catch (err) {
       console.warn("Failed to mark all as read on server:", err);
+    }
+  };
+
+  const handleDeleteAlert = async (e, id) => {
+    e.stopPropagation();
+    if (!window.confirm("คุณต้องการลบรายการแจ้งเตือนนี้หรือไม่?")) return;
+
+    // Optimistic UI update
+    setAlerts((prev) => prev.filter((a) => a.id !== id));
+
+    try {
+      await alertsApi.deleteAlert(id);
+      window.dispatchEvent(new Event("vigil-alerts-updated"));
+    } catch (err) {
+      console.warn("Failed to delete alert on server:", err);
+      loadAlerts();
+    }
+  };
+
+  const handleClearAlerts = async () => {
+    const isFiltered = selectedCategory !== "ALL";
+    const count = isFiltered ? filteredAlerts.length : alerts.length;
+    if (count === 0) return;
+
+    const confirmMsg = isFiltered
+      ? `คุณต้องการลบการแจ้งเตือนในหมวดหมู่นี้ทั้งหมด (${count} รายการ) หรือไม่?`
+      : `คุณต้องการลบการแจ้งเตือนทั้งหมด (${count} รายการ) หรือไม่?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    // Optimistic UI update
+    if (isFiltered) {
+      setAlerts((prev) => prev.filter((a) => a.category !== selectedCategory));
+    } else {
+      setAlerts([]);
+    }
+
+    try {
+      await alertsApi.clearAlerts(isFiltered ? selectedCategory : undefined);
+      window.dispatchEvent(new Event("vigil-alerts-updated"));
+    } catch (err) {
+      console.warn("Failed to clear alerts on server:", err);
+      loadAlerts();
     }
   };
 
@@ -267,6 +312,17 @@ export default function AlertsPage() {
             >
               <span className="hidden sm:inline">อ่านทั้งหมด</span>
             </Button>
+          )}
+
+          {alerts.length > 0 && (
+            <button
+              onClick={handleClearAlerts}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white hover:bg-[#ffebee] text-[#c62828] border border-[#e8e0d5] hover:border-[#ef9a9a] transition-all cursor-pointer shadow-2xs"
+              title="ลบรายการแจ้งเตือนทั้งหมด"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-[#c62828]" />
+              <span className="hidden sm:inline">ลบทั้งหมด</span>
+            </button>
           )}
         </div>
       </div>
@@ -376,6 +432,15 @@ export default function AlertsPage() {
                     <span>ระบุตัวตน / เทรน</span>
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={(e) => handleDeleteAlert(e, alert.id)}
+                  className="p-1.5 rounded-xl text-[#9e9e9e] hover:text-[#c62828] hover:bg-[#ffebee] border border-transparent hover:border-[#ffcdd2] transition-all cursor-pointer shrink-0"
+                  title="ลบการแจ้งเตือนนี้"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
               <span className="text-[11px] text-[#6b6b6b] font-medium hidden sm:inline">
                 {alert.isRead ? "คลิกเพื่อมาร์กยังไม่อ่าน" : "คลิกเพื่อมาร์กว่าอ่านแล้ว"}

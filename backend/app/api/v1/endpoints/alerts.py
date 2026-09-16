@@ -80,6 +80,29 @@ def update_alert_read(
     return alert
 
 
+@router.delete("", summary="ลบการแจ้งเตือนทั้งหมด หรือตามเงื่อนไข")
+def clear_alerts(
+    category: Optional[str] = Query(None, description="กรองตามประเภท: 'household', 'delivery', 'stranger'"),
+    unread_only: bool = Query(False, description="ลบเฉพาะรายการที่ยังไม่ได้อ่าน"),
+    read_only: bool = Query(False, description="ลบเฉพาะรายการที่อ่านแล้ว"),
+    db: Session = Depends(get_db),
+):
+    """
+    ลบรายการแจ้งเตือนทั้งหมด หรือเลือกลบตามหมวดหมู่ / สถานะการอ่าน
+    """
+    query = db.query(Alert)
+    if category and category.strip() and category.upper() != "ALL":
+        query = query.filter(Alert.category == category.lower())
+    if unread_only:
+        query = query.filter(Alert.is_read == False)
+    elif read_only:
+        query = query.filter(Alert.is_read == True)
+
+    deleted_count = query.delete(synchronize_session=False)
+    db.commit()
+    return {"message": f"Deleted {deleted_count} alerts", "count": deleted_count}
+
+
 @router.delete("/{alert_id}", status_code=status.HTTP_204_NO_CONTENT, summary="ลบการแจ้งเตือน")
 def delete_alert(alert_id: int, db: Session = Depends(get_db)):
     alert = db.query(Alert).filter(Alert.id == alert_id).first()
@@ -88,3 +111,4 @@ def delete_alert(alert_id: int, db: Session = Depends(get_db)):
     db.delete(alert)
     db.commit()
     return None
+

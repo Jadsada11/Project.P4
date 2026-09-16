@@ -97,6 +97,12 @@ export const detectionApi = {
       .then((res) => res.data),
   deleteHistory: (id) =>
     api.delete(`/detection/history/${id}`).then((res) => res.data),
+  clearHistory: (category = "") =>
+    api
+      .delete("/detection/history", {
+        params: category && category !== "ALL" ? { category } : {},
+      })
+      .then((res) => res.data),
   identifyPerson: (historyId, payload) =>
     api
       .put(`/detection/history/${historyId}/identify`, payload)
@@ -122,6 +128,15 @@ export const alertsApi = {
     api.put(`/alerts/${id}/read`, { is_read: isRead }).then((res) => res.data),
   markAllRead: () => api.put("/alerts/read-all").then((res) => res.data),
   deleteAlert: (id) => api.delete(`/alerts/${id}`).then((res) => res.data),
+  clearAlerts: (category = "", readOnly = false) =>
+    api
+      .delete("/alerts", {
+        params: {
+          category: category && category !== "ALL" ? category : undefined,
+          read_only: readOnly ? true : undefined,
+        },
+      })
+      .then((res) => res.data),
 };
 
 // ==========================================

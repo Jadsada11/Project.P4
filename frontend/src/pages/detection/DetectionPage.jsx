@@ -26,6 +26,7 @@ import {
   Zap,
   Volume2,
   VolumeX,
+  Trash2,
 } from "lucide-react";
 import MetricCard from "../../components/common/MetricCard";
 import Badge from "../../components/common/Badge";
@@ -131,9 +132,20 @@ export default function DetectionPage() {
   const [streamMode, setStreamMode] = useState(() => {
     return localStorage.getItem("esp32_cam_mode") || "live"; // "live" | "demo"
   });
+  const [streamSource, setStreamSource] = useState(() => {
+    return localStorage.getItem("esp32_stream_source") || "proxy";
+  });
   const [streamStatus, setStreamStatus] = useState("connecting"); // "online" | "offline" | "connecting"
   const [streamKey, setStreamKey] = useState(() => Date.now()); // for reconnecting/cache busting
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // Stream Refs for clean teardown and stable recovery
+  const streamImgRef = useRef(null);
+  const isMountedRef = useRef(true);
+  const retryCountRef = useRef(0);
+  const retryTimeoutRef = useRef(null);
+  const consecutiveErrorsRef = useRef(0);
+  const lastErrorTimeRef = useRef(0);
 
   // Modal temporary form states
   const parsed = parseStreamUrl(streamUrl);
@@ -141,6 +153,13 @@ export default function DetectionPage() {
   const [tempPort, setTempPort] = useState(parsed.port);
   const [tempPath, setTempPath] = useState(parsed.path || DEFAULT_PATH);
   const [tempMode, setTempMode] = useState(streamMode);
+  const [tempSource, setTempSource] = useState(streamSource);
+
+  // Active Stream URL (Direct or Backend Proxy)
+  const activeStreamSrc =
+    streamSource === "proxy"
+      ? `${detectionApi.getEsp32StreamUrl(cameraIp, parsed.port)}&_t=${streamKey}`
+      : `${streamUrl}${streamUrl.includes("?") ? "&" : "?"}_t=${streamKey}`;
 
   // Real-time Clock
   useEffect(() => {
@@ -171,7 +190,7 @@ export default function DetectionPage() {
 
     try {
       const h = await detectionApi.getHistory(historyCategory);
-      if (h && Array.isArray(h) && h.length > 0) {
+      if (h && Array.isArray(h)) {
         const formatted = h.map((item) => ({
           id: `hist-${item.id}`,
           name: item.person_name,
@@ -203,6 +222,37 @@ export default function DetectionPage() {
     return () => clearInterval(interval);
   }, [historyCategory]);
 
+  // Clean stream lifecycle management and socket teardown on unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    retryCountRef.current = 0;
+    setStreamStatus("connecting");
+
+    // Micro-delay on mount allows ESP32-CAM to cleanly terminate previous socket
+    const mountTimer = setTimeout(() => {
+      if (isMountedRef.current) {
+        setStreamKey(Date.now());
+      }
+    }, 150);
+
+    return () => {
+      isMountedRef.current = false;
+      clearTimeout(mountTimer);
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+      // Explicitly tear down image stream:
+      // Setting src to empty string triggers Chromium/Firefox/WebKit to send TCP FIN/RST
+      // and close the active HTTP connection, freeing the ESP32-CAM socket immediately!
+      if (streamImgRef.current) {
+        streamImgRef.current.onload = null;
+        streamImgRef.current.onerror = null;
+        streamImgRef.current.src = "";
+        streamImgRef.current.removeAttribute("src");
+      }
+    };
+  }, [streamUrl, streamSource, cameraIp]);
+
   // Sync modal form when opening
   const handleOpenSettings = () => {
     const currentParsed = parseStreamUrl(streamUrl);
@@ -210,11 +260,63 @@ export default function DetectionPage() {
     setTempPort(currentParsed.port);
     setTempPath(currentParsed.path || DEFAULT_PATH);
     setTempMode(streamMode);
+    setTempSource(streamSource);
     setIsSettingsOpen(true);
+  };
+
+  const handleStreamLoad = () => {
+    if (!isMountedRef.current) return;
+    consecutiveErrorsRef.current = 0;
+    retryCountRef.current = 0;
+    setStreamStatus("online");
+  };
+
+  const handleStreamError = () => {
+    if (!isMountedRef.current) return;
+    const now = Date.now();
+
+    // Debounce transient frame packet hiccups in MJPEG streams
+    if (now - lastErrorTimeRef.current < 2500) {
+      consecutiveErrorsRef.current += 1;
+    } else {
+      consecutiveErrorsRef.current = 1;
+    }
+    lastErrorTimeRef.current = now;
+
+    // Only initiate reconnect if multiple consecutive errors confirm the stream actually severed
+    if (consecutiveErrorsRef.current >= 4) {
+      if (retryCountRef.current < 3) {
+        retryCountRef.current += 1;
+        consecutiveErrorsRef.current = 0;
+        console.warn(`[ESP32 Stream] Recovering dropped stream (attempt ${retryCountRef.current}/3)...`);
+
+        if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = setTimeout(() => {
+          if (isMountedRef.current) {
+            setStreamKey(Date.now());
+          }
+        }, 1200);
+      } else {
+        setStreamStatus("offline");
+      }
+    }
   };
 
   // Reconnect / refresh stream
   const handleReconnect = () => {
+    retryCountRef.current = 0;
+    consecutiveErrorsRef.current = 0;
+    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    setStreamStatus("connecting");
+    setStreamKey(Date.now());
+  };
+
+  const handleToggleStreamSource = (newSource) => {
+    const src = newSource || (streamSource === "direct" ? "proxy" : "direct");
+    setStreamSource(src);
+    localStorage.setItem("esp32_stream_source", src);
+    retryCountRef.current = 0;
+    consecutiveErrorsRef.current = 0;
     setStreamStatus("connecting");
     setStreamKey(Date.now());
   };
@@ -230,12 +332,14 @@ export default function DetectionPage() {
     setCameraIp(cleanIp);
     setStreamUrl(newUrl);
     setStreamMode(tempMode);
+    setStreamSource(tempSource);
     setStreamStatus(tempMode === "live" ? "connecting" : "online");
     setStreamKey(Date.now());
 
     localStorage.setItem("esp32_cam_ip", cleanIp);
     localStorage.setItem("esp32_cam_stream_url", newUrl);
     localStorage.setItem("esp32_cam_mode", tempMode);
+    localStorage.setItem("esp32_stream_source", tempSource);
 
     setIsSettingsOpen(false);
   };
@@ -328,8 +432,8 @@ export default function DetectionPage() {
     try {
       let res = null;
 
-      // 1. Try grabbing the live video frame directly from visible image in browser
-      const streamImg = document.getElementById("esp32-stream-img");
+      // 1. Try grabbing the live video frame directly from visible image in browser (zero extra network hit on ESP32)
+      const streamImg = streamImgRef.current || document.getElementById("esp32-stream-img");
       if (
         streamMode === "live" &&
         streamStatus === "online" &&
@@ -343,9 +447,13 @@ export default function DetectionPage() {
           canvas.height = streamImg.naturalHeight || 480;
           const ctx = canvas.getContext("2d");
           ctx.drawImage(streamImg, 0, 0);
-          const blob = await new Promise((resolve) =>
-            canvas.toBlob(resolve, "image/jpeg", 0.88)
-          );
+          const blob = await new Promise((resolve, reject) => {
+            try {
+              canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Empty blob"))), "image/jpeg", 0.88);
+            } catch (err) {
+              reject(err);
+            }
+          });
           if (blob && blob.size > 1000) {
             const formData = new FormData();
             formData.append("file", blob, "live_stream_frame.jpg");
@@ -354,12 +462,14 @@ export default function DetectionPage() {
             res = await detectionApi.detectImage(formData);
           }
         } catch (canvasErr) {
-          console.debug("Live stream canvas grab skipped (fallback to API):", canvasErr);
+          // If canvas frame grab was skipped or tainted, gently continue without hitting ESP32
+          console.debug("Live stream canvas grab skipped:", canvasErr?.message);
         }
       }
 
-      // 2. Fallback to direct backend ESP32 proxy detect if canvas was not used
-      if (!res) {
+      // 2. Fallback to direct backend ESP32 proxy detect ONLY IF not currently live streaming
+      // (because hitting /capture on ESP32 while /stream is active severs the live stream!)
+      if (!res && streamMode !== "live") {
         res = await detectionApi.detectESP32({
           camera_ip: cameraIp,
           camera_port: tempPort || "",
@@ -427,7 +537,7 @@ export default function DetectionPage() {
     }, autoDetectInterval);
 
     return () => clearInterval(timer);
-  }, [isAutoDetect, autoDetectInterval, cameraIp, tempPort, streamMode, streamStatus]);
+  }, [isAutoDetect, autoDetectInterval, cameraIp, tempPort, streamMode]);
 
   // Open Identify & Train Modal for a visitor record
   const handleOpenIdentifyModal = async (record) => {
@@ -522,6 +632,50 @@ export default function DetectionPage() {
       alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล: " + (err.response?.data?.detail || err.message));
     } finally {
       setIsSubmittingIdentify(false);
+    }
+  };
+
+  // Delete individual detection history record
+  const handleDeleteHistory = async (e, visitor) => {
+    e.stopPropagation();
+    if (!window.confirm(`คุณต้องการลบประวัติการตรวจจับของ '${visitor.name}' นี้หรือไม่?`)) return;
+
+    const rawId = visitor.id.toString().replace("hist-", "");
+    // Optimistic UI update
+    setVisitors((prev) => prev.filter((v) => v.id !== visitor.id));
+
+    try {
+      await detectionApi.deleteHistory(rawId);
+      const s = await detectionApi.getStats();
+      if (s) setStats(s);
+    } catch (err) {
+      console.warn("Failed to delete history on server:", err);
+      fetchStatsAndHistory();
+    }
+  };
+
+  // Clear all detection history records (or for current filtered category)
+  const handleClearHistory = async () => {
+    const isFiltered = historyCategory !== "ALL";
+    const count = visitors.length;
+    if (count === 0) return;
+
+    const confirmMsg = isFiltered
+      ? `คุณต้องการล้างประวัติในหมวดหมู่นี้ทั้งหมด (${count} รายการ) หรือไม่?`
+      : `คุณต้องการล้างประวัติการตรวจจับทั้งหมด (${count} รายการ) หรือไม่?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    // Optimistic UI update
+    setVisitors([]);
+
+    try {
+      await detectionApi.clearHistory(isFiltered ? historyCategory : "");
+      const s = await detectionApi.getStats();
+      if (s) setStats(s);
+    } catch (err) {
+      console.warn("Failed to clear history on server:", err);
+      fetchStatsAndHistory();
     }
   };
 
@@ -684,6 +838,26 @@ export default function DetectionPage() {
                     OFFLINE
                   </span>
                 )}
+
+                {/* Stream Mode Toggle Badge (Direct IP vs Backend Proxy) */}
+                {streamMode === "live" && (
+                  <button
+                    type="button"
+                    onClick={() => handleToggleStreamSource()}
+                    className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md border transition-all cursor-pointer ${
+                      streamSource === "proxy"
+                        ? "bg-[#e0f2f1] text-[#00796b] border-[#80cbc4] hover:bg-[#b2dfdb]"
+                        : "bg-[#f7f1e9] text-[#6b6b6b] border-[#e8e0d5] hover:text-[#1a1a1a]"
+                    }`}
+                    title={
+                      streamSource === "proxy"
+                        ? "กำลังสตรีมผ่าน Backend Proxy (คลิกเพื่อสลับเป็น Direct IP)"
+                        : "กำลังสตรีมแบบ Direct IP (คลิกเพื่อสลับเป็น Backend Proxy)"
+                    }
+                  >
+                    <span>{streamSource === "proxy" ? "Proxy Mode" : "Direct IP"}</span>
+                  </button>
+                )}
               </div>
 
               {/* Action Buttons */}
@@ -785,15 +959,15 @@ export default function DetectionPage() {
               {streamMode === "live" ? (
                 <img
                   id="esp32-stream-img"
-                  crossOrigin="anonymous"
-                  key={`${streamUrl}-${streamKey}`}
-                  src={`${streamUrl}${streamUrl.includes("?") ? "&" : "?"}_t=${streamKey}`}
+                  ref={streamImgRef}
+                  crossOrigin={streamSource === "proxy" ? "anonymous" : undefined}
+                  src={activeStreamSrc}
                   alt="ESP32-CAM Live MJPEG Stream"
                   className={`w-full h-full object-cover transition-opacity duration-300 ${
                     streamStatus === "offline" ? "opacity-15" : "opacity-100"
                   }`}
-                  onLoad={() => setStreamStatus("online")}
-                  onError={() => setStreamStatus("offline")}
+                  onLoad={handleStreamLoad}
+                  onError={handleStreamError}
                 />
               ) : (
                 <img
@@ -801,6 +975,14 @@ export default function DetectionPage() {
                   alt="Demo Camera Feed"
                   className="w-full h-full object-cover opacity-90 transition-all duration-300"
                 />
+              )}
+
+              {/* Connecting Mini Overlay */}
+              {streamMode === "live" && streamStatus === "connecting" && (
+                <div className="absolute top-4 right-4 bg-black/75 backdrop-blur-sm px-3 py-1.5 rounded-xl border border-white/10 text-white text-xs flex items-center gap-2 z-10 animate-in fade-in">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#f5c9a8]" />
+                  <span>กำลังเชื่อมต่อกล้อง... {retryCountRef.current > 0 ? `(ลองครั้งที่ ${retryCountRef.current}/3)` : ""}</span>
+                </div>
               )}
 
               {/* OFFLINE / CONNECTION ERROR OVERLAY */}
@@ -813,7 +995,7 @@ export default function DetectionPage() {
                     ไม่สามารถเชื่อมต่อกล้อง ESP32-CAM ได้
                   </h3>
                   <div className="flex items-center gap-1.5 font-mono text-xs text-[#f5c9a8] bg-black/60 px-3.5 py-1.5 rounded-lg border border-white/10 mb-3 max-w-full overflow-hidden text-ellipsis">
-                    <span>{streamUrl}</span>
+                    <span>{streamSource === "proxy" ? `[Proxy Mode] ${cameraIp}` : streamUrl}</span>
                     <a
                       href={streamUrl}
                       target="_blank"
@@ -835,6 +1017,15 @@ export default function DetectionPage() {
                       onClick={handleReconnect}
                     >
                       ลองเชื่อมต่อใหม่ (Retry)
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={Radio}
+                      className="bg-[#26a69a] hover:bg-[#00897b] text-white border-none"
+                      onClick={() => handleToggleStreamSource()}
+                    >
+                      {streamSource === "direct" ? "ลองสตรีมผ่าน Backend Proxy" : "ลองสตรีมตรง (Direct IP)"}
                     </Button>
                     <Button
                       variant="secondary"
@@ -1101,19 +1292,30 @@ export default function DetectionPage() {
                         {visitor.confidence}%
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenIdentifyModal(visitor)}
-                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-bold cursor-pointer transition-all shadow-2xs border ${
-                        visitor.role === "stranger"
-                          ? "bg-[#fff3e0] hover:bg-[#ffe0b2] text-[#e65100] border-[#ffb74d] animate-pulse"
-                          : "bg-white hover:bg-[#f5c9a8]/30 text-[#1a1a1a] border-[#e8e0d5]"
-                      }`}
-                      title="ระบุตัวตนและบันทึกภาพนี้เข้าสู่ระบบโมเดล AI"
-                    >
-                      <Sparkles className="w-3 h-3 text-[#e65100]" />
-                      <span>{visitor.role === "stranger" ? "ระบุตัวตน & เทรน" : "เทรนข้อมูลเพิ่ม"}</span>
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenIdentifyModal(visitor)}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-bold cursor-pointer transition-all shadow-2xs border ${
+                          visitor.role === "stranger"
+                            ? "bg-[#fff3e0] hover:bg-[#ffe0b2] text-[#e65100] border-[#ffb74d] animate-pulse"
+                            : "bg-white hover:bg-[#f5c9a8]/30 text-[#1a1a1a] border-[#e8e0d5]"
+                        }`}
+                        title="ระบุตัวตนและบันทึกภาพนี้เข้าสู่ระบบโมเดล AI"
+                      >
+                        <Sparkles className="w-3 h-3 text-[#e65100]" />
+                        <span>{visitor.role === "stranger" ? "ระบุตัวตน & เทรน" : "เทรนข้อมูลเพิ่ม"}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteHistory(e, visitor)}
+                        className="p-1 rounded-lg text-neutral-400 hover:text-[#c62828] hover:bg-[#ffebee] border border-transparent hover:border-[#ffcdd2] transition-all cursor-pointer"
+                        title="ลบประวัติตรวจจับนี้"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1126,13 +1328,28 @@ export default function DetectionPage() {
             </div>
 
             <div className="mt-auto pt-3 border-t border-[#e8e0d5] text-center flex items-center justify-between text-xs text-[#6b6b6b]">
-              <span>Auto-synced with SQLite</span>
-              <button
-                onClick={fetchStatsAndHistory}
-                className="text-[#e65100] font-bold hover:underline cursor-pointer"
-              >
-                รีเฟรชประวัติ
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={fetchStatsAndHistory}
+                  className="text-[#e65100] font-bold hover:underline cursor-pointer"
+                >
+                  รีเฟรชประวัติ
+                </button>
+                {visitors.length > 0 && (
+                  <>
+                    <span>•</span>
+                    <button
+                      onClick={handleClearHistory}
+                      className="text-[#c62828] font-bold hover:underline cursor-pointer flex items-center gap-1"
+                      title="ล้างประวัติการตรวจจับทั้งหมด"
+                    >
+                      <Trash2 className="w-3 h-3 text-[#c62828]" />
+                      <span>ล้างประวัติ</span>
+                    </button>
+                  </>
+                )}
+              </div>
+              <span className="text-[11px]">Auto-synced SQLite</span>
             </div>
           </div>
         </div>
@@ -1214,6 +1431,54 @@ export default function DetectionPage() {
                 onChange={(e) => setTempPath(e.target.value)}
                 placeholder="/stream"
               />
+            </div>
+
+            {/* Stream Connection Mode Selection */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-[#1a1a1a] uppercase tracking-wider">
+                ช่องทางการรับสตรีม (Stream Method)
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTempSource("direct")}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    tempSource === "direct"
+                      ? "border-[#e8b48a] bg-[#f5c9a8]/20 font-bold text-[#1a1a1a]"
+                      : "border-[#e8e0d5] bg-[#f7f1e9]/60 hover:bg-[#f7f1e9] text-[#4a4a4a]"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-xs font-bold">Direct IP (ต่อตรง)</span>
+                    {tempSource === "direct" && (
+                      <Check className="w-3.5 h-3.5 text-[#2e7d32]" />
+                    )}
+                  </div>
+                  <span className="text-[10px] text-[#6b6b6b]">
+                    รับภาพตรงจาก ESP32 เร็วที่สุด
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTempSource("proxy")}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    tempSource === "proxy"
+                      ? "border-[#e8b48a] bg-[#f5c9a8]/20 font-bold text-[#1a1a1a]"
+                      : "border-[#e8e0d5] bg-[#f7f1e9]/60 hover:bg-[#f7f1e9] text-[#4a4a4a]"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-xs font-bold">Backend Proxy (แนะนำ)</span>
+                    {tempSource === "proxy" && (
+                      <Check className="w-3.5 h-3.5 text-[#2e7d32]" />
+                    )}
+                  </div>
+                  <span className="text-[10px] text-[#6b6b6b]">
+                    เสถียรสูงสุด ไม่หลุดเมื่อเปลี่ยนหน้า
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
 
