@@ -13,6 +13,7 @@ from app.models.person import Person
 from app.models.detection import DetectionHistory
 from app.models.alert import Alert
 from app.services.face_embedding_service import match_face_embedding
+from app.services.email_service import trigger_email_alert_async
 
 logger = logging.getLogger("person_classifier")
 
@@ -101,7 +102,8 @@ def classify_and_record(
                 person_name = force_name or "บุคคลแปลกหน้า (Stranger)"
         else:
             # 1. เปรียบเทียบ Deep Learning Face Embedding กับฐานข้อมูลบุคคลที่เทรนไว้
-            face_match, match_score = match_face_embedding(crop, threshold=0.58, is_full_person_crop=True)
+            is_face_crop = det.get("is_real_face", True) or det.get("class_name") == "face"
+            face_match, match_score = match_face_embedding(crop, threshold=0.55, is_full_person_crop=(not is_face_crop))
             if face_match:
                 matched_pid = face_match.get("person_id")
                 if matched_pid:
@@ -111,8 +113,11 @@ def classify_and_record(
                 role = face_match.get("role", "Family" if category == "household" else "Delivery")
                 confidence = round(max(confidence, match_score * 100), 1)
             else:
-                # 2. ตรวจสอบ Heuristic เครื่องแบบขนส่งพัสดุ (Flash Yellow, Kerry Orange, Grab Green)
-                color_feats = analyze_colors_and_features(crop)
+                # 2. ตรวจสอบ Heuristic เครื่องแบบขนส่งพัสดุ โดยดูบริเวณเสื้อผ้าใต้ใบหน้า
+                chest_y1 = min(h - 1, y2)
+                chest_y2 = min(h, y2 + int((y2 - y1) * 1.5))
+                clothing_crop = image_np[chest_y1:chest_y2, max(0, x1 - int((x2 - x1) * 0.2)):min(w, x2 + int((x2 - x1) * 0.2))]
+                color_feats = analyze_colors_and_features(clothing_crop if clothing_crop.size > 0 else crop)
                 r = color_feats.get("r", 128)
                 g = color_feats.get("g", 128)
                 b = color_feats.get("b", 128)
@@ -208,6 +213,16 @@ def classify_and_record(
             )
             db.add(alert)
             detection_record.alert_triggered = True
+
+        # 3. ส่งการแจ้งเตือนทางอีเมลอัตโนมัติ (Gmail SMTP) แบบ Non-blocking
+        if alert_created:
+            trigger_email_alert_async(
+                category=category,
+                person_name=person_name,
+                location=location,
+                confidence=confidence,
+                snapshot_rel_path=snapshot_url or (matched_person.photo_url if matched_person else ""),
+            )
 
         results.append({
             "person_name": person_name,

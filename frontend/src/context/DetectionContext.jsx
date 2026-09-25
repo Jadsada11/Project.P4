@@ -342,6 +342,8 @@ export function DetectionProvider({ children }) {
 
         // Real-time Badge Sync across entire app
         window.dispatchEvent(new CustomEvent("vigil-alerts-updated"));
+      } else if (res && res.detections && res.detections.length === 0) {
+        setActiveDetections([]);
       }
 
       await fetchStats();

@@ -1,31 +1,37 @@
 # Vigil — AI & Vision Pipeline Documentation
-สถาปัตยกรรม Two-Stage Hybrid AI Pipeline, โมเดลตรวจจับใบหน้า และการสกัด Feature เวกเตอร์ 576 มิติ
+สถาปัตยกรรม Human-Only Face Detection, โมเดลตรวจจับใบหน้าเฉพาะมนุษย์ (YuNet), การป้องกันหน้าสัตว์/รูปภาพ (Anti-Spoofing & Anti-Animal), และการสกัด Feature เวกเตอร์ 576 มิติ
 
 ---
 
-## 1. สถาปัตยกรรม Two-Stage Hybrid AI Pipeline
+## 1. สถาปัตยกรรม Human-Only Face Detection & Recognition Pipeline
 
-ระบบของ Vigil ผสานการทำงานระหว่าง **การตรวจจับวัตถุบุคคลความเร็วสูง (Object Detection)** และ **การระบุตัวตนด้วยการเรียนรู้เชิงเมตริก (Deep Metric Learning)**:
+ระบบของ Vigil ออกแบบมาเพื่อ **ตรวจจับเฉพาะใบหน้าของมนุษย์จริงเท่านั้น (Real Human Face Only)** โดยมีกลไกคัดกรองหน้าสัตว์ (หมา, แมว, สัตว์เลี้ยง) และภาพถ่าย/หน้าจอมือถือ (2D Photos & Mobile Screen Spoofing) อย่างเคร่งครัด:
 
 ```mermaid
 flowchart TD
-    A["ESP32-CAM / Webcam Live Stream"] -->|เฟรมภาพ 20-30 FPS| B["Stage 1: YOLOv8 Person Detector"]
-    B -->|ตรวจพบบริเวณร่างกาย Bounding Box [x1, y1, x2, y2]| C["Head & Face Region Crop"]
-    C -->|ตัดภาพส่วนหัว 35% ด้านบน (Upper 35%)| D["Stage 2: MobileNetV3 Feature Extractor"]
-    D -->|สกัดเวกเตอร์ 576-dim L2-Normalized| E["Cosine Similarity Matching Engine"]
+    A["ESP32-CAM / Webcam Live Stream"] -->|เฟรมภาพ RGB| B["Stage 1: OpenCV YuNet Deep Face Detector\n(yunet.onnx)"]
+    B -->|ตรวจพบใบหน้า + 5 Landmarks| C{"1. ตรวจสอบกายวิภาคใบหน้ามนุษย์\n(Human Landmark Anatomy?)"}
+    C -->|ไม่ใช่ใบหน้าคน / สัดส่วนหน้าสัตว์| REJ1["🚫 ปฏิเสธ: หน้าสัตว์/รูปวาด (Ignore)"]
+    C -->|ผ่านเกณฑ์มนุษย์| D{"2. ตรวจสอบ Anti-Animal\n(YOLO COCO Animals Overlap?)"}
+    D -->|พบลักษณะสัตว์เลี้ยง| REJ2["🚫 ปฏิเสธ: ตรวจพบสัตว์ (Ignore)"]
+    D -->|ไม่พบสัตว์| E{"3. ตรวจสอบ Anti-Spoofing & Liveness\n(2D Photo / Phone Screen?)"}
+    E -->|พบ Moiré Pattern / จอแบน / ขอบจอ| REJ3["🚫 ปฏิเสธ: รูปภาพ / จอมือถือสปูฟ"]
+    E -->|ใบหน้ามนุษย์จริง| F["Stage 2: MobileNetV3 Metric Learning Extractor"]
     
-    F[("face_embeddings.json\nฐานข้อมูลเวกเตอร์ที่เทรนไว้")] -->|เปรียบเทียบความคล้ายคลึง| E
+    F -->|สกัดเวกเตอร์ 576-dim L2-Normalized| G["Cosine Similarity Matching Engine"]
+    H[("face_embeddings.json\nฐานข้อมูลเวกเตอร์ที่เทรนไว้")] -->|เปรียบเทียบความคล้ายคลึง| G
     
-    E -->|Cosine Similarity >= 0.58| G["จดจำได้: คนในบ้าน Household / คนส่งของ Delivery"]
-    E -->|Cosine Similarity < 0.58| H{"ตรวจสีเครื่องแบบพัสดุ?"}
-    H -->|พบชุด Flash / Kerry / Grab| I["คนส่งของ Delivery"]
-    H -->|ไม่ตรงเงื่อนไข| J["คนแปลกหน้า Stranger"]
+    G -->|Cosine Similarity >= 0.58| I["จดจำได้: คนในบ้าน Household / คนส่งของ Delivery"]
+    G -->|Cosine Similarity < 0.58| J{"ตรวจสีเครื่องแบบเสื้อผ้าใต้คาง?"}
+    J -->|พบชุด Flash / Kerry / Grab| K["คนส่งของ Delivery"]
+    J -->|ไม่ตรงเงื่อนไข| L["คนแปลกหน้า Stranger"]
     
-    G --> K["บันทึก DetectionHistory & สร้าง Alert ระบุชื่อบุคคล"]
-    I --> K
-    J --> K
-    K --> L["แสดงผลบนหน้า /detection & หน้าแจ้งเตือน /alerts แบบเรียลไทม์"]
+    I --> M["บันทึก DetectionHistory & สร้าง Alert ระบุชื่อบุคคล"]
+    K --> M
+    L --> M
+    M --> N["แสดงผลบนหน้า /detection & หน้าแจ้งเตือน /alerts แบบเรียลไทม์"]
 ```
+
 
 ---
 

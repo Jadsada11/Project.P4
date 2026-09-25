@@ -32,6 +32,16 @@ class Settings(BaseSettings):
         "http://localhost:3000",
     ]
 
+    # SMTP & Email Alerts Configuration (Gmail SMTP)
+    SMTP_ENABLED: bool = True
+    SMTP_SERVER: str = "smtp.gmail.com"
+    SMTP_PORT: int = 465
+    SMTP_USER: str = "thanakornnillamai@gmail.com"
+    SMTP_PASSWORD: str = "khlcoalqwizlhrlg"
+    NOTIFICATION_RECIPIENT_EMAIL: str = "thanakornnillamai@gmail.com"
+    EMAIL_ALERT_COOLDOWN_SECONDS: int = 60
+    EMAIL_ALERT_CATEGORIES: Union[List[str], str] = ["delivery", "stranger"]
+
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
@@ -40,6 +50,15 @@ class Settings(BaseSettings):
         elif isinstance(v, list):
             return v
         return []
+
+    @field_validator("EMAIL_ALERT_CATEGORIES", mode="before")
+    @classmethod
+    def assemble_email_categories(cls, v: Union[str, List[str]]) -> List[str]:
+        if isinstance(v, str) and not v.startswith("["):
+            return [i.strip().lower() for i in v.split(",") if i.strip()]
+        elif isinstance(v, list):
+            return [str(i).strip().lower() for i in v]
+        return ["delivery", "stranger"]
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -9,6 +9,7 @@ import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Tuple, Union
 
+import cv2
 import numpy as np
 import torch
 import torchvision.transforms as transforms
@@ -206,16 +207,45 @@ def parse_image_input(image_input: Union[str, np.ndarray, Image.Image]) -> Optio
 
 def crop_face_region(pil_img: Image.Image) -> Image.Image:
     """
-    ตัดครอบบริเวณใบหน้า/ศีรษะ:
-    - หากรูปภาพเป็นสัดส่วนบุคคลเต็มตัว (ความสูง > 1.25x ความกว้าง) จะ crop บริเวณส่วนบน 35%
-    - หากรูปภาพเป็นรูปหน้าตรงหรือสี่เหลี่ยมจัตุรัสอยู่แล้ว จะใช้ภาพนั้นตรงๆ
+    ตัดครอบบริเวณใบหน้าคนโดยเฉพาะ:
+    1. ใช้ YuNet Deep Learning Face Detector เพื่อหาตำแหน่งใบหน้าคนและตัด crop แบบแม่นยำสูง (พร้อม margin 15-20%)
+    2. หากเป็นรูปขนาดใหญ่ (เช่น รูปจากเว็บแคม/มือถือ/ESP32 1280x720 หรือ 640x480) และ YuNet ไม่พบใบหน้า จะใช้ Heuristic สัดส่วนคนส่วนบน/ตรงกลางเป็น Fallback
+    3. หากเป็นรูปขนาดเล็กที่ตัดหน้ามาแล้วอยู่แล้ว ให้ใช้รูปเดิม
     """
+    try:
+        from app.services.yolo_service import get_yunet_detector
+        yunet = get_yunet_detector()
+        if yunet is not None:
+            w, h = pil_img.size
+            img_np = np.array(pil_img)
+            img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+            yunet.setInputSize((w, h))
+            ret, faces = yunet.detect(img_bgr)
+            if faces is not None and len(faces) > 0:
+                best_face = max(faces, key=lambda f: float(f[-1]))
+                fx, fy, fw, fh = best_face[:4].astype(int)
+                margin_x = int(fw * 0.18)
+                margin_y = int(fh * 0.18)
+                crop_x1 = max(0, fx - margin_x)
+                crop_y1 = max(0, fy - margin_y)
+                crop_x2 = min(w, fx + fw + margin_x)
+                crop_y2 = min(h, fy + fh + margin_y)
+                if crop_x2 > crop_x1 + 20 and crop_y2 > crop_y1 + 20:
+                    return pil_img.crop((crop_x1, crop_y1, crop_x2, crop_y2))
+    except Exception as e:
+        logger.debug(f"Face crop via YuNet skipped: {e}")
+
     w, h = pil_img.size
-    if h > 1.25 * w:
-        face_h = int(h * 0.35)
-        crop_box = (0, 0, w, face_h)
-        return pil_img.crop(crop_box)
+    # Fallback if image is full frame / large image
+    if h > 300 or w > 300:
+        if h > 1.25 * w:
+            # Tall portrait: upper 40%
+            return pil_img.crop((0, 0, w, int(h * 0.40)))
+        else:
+            # Landscape (e.g. 1280x720, 640x480): center 60%
+            return pil_img.crop((int(w * 0.20), int(h * 0.05), int(w * 0.80), int(h * 0.85)))
     return pil_img
+
 
 
 # -------------------------------------------------------------
@@ -224,11 +254,12 @@ def crop_face_region(pil_img: Image.Image) -> Image.Image:
 def extract_face_embedding(
     image_input: Union[str, np.ndarray, Image.Image],
     is_full_person_crop: bool = False,
+    auto_crop_face: bool = True,
 ) -> Optional[np.ndarray]:
     """
     สกัด Deep Learning Face Embedding (576-dim L2-normalized vector) จากภาพใบหน้า:
     1. แปลงภาพเป็น RGB PIL Image
-    2. ตัดครอบเฉพาะบริเวณใบหน้า/ศีรษะ (ถ้าเป็นกล่องคนเต็มตัว)
+    2. ตัดครอบเฉพาะบริเวณใบหน้า/ศีรษะ (ถ้าเป็นกล่องคนเต็มตัว หรือรูปขนาดใหญ่ที่มีฉากหลัง)
     3. Normalize และส่งเข้า MobileNetV3 Small Feature Extractor
     4. Adaptive Average Pooling และ L2-Normalization
     """
@@ -237,7 +268,10 @@ def extract_face_embedding(
         if pil_img is None:
             return None
 
-        if is_full_person_crop:
+        # ถ้าส่งเป็นภาพเต็ม หรือรูปขนาดใหญ่ (w > 260 หรือ h > 260) ให้ทำ auto face crop เสมอ
+        w, h = pil_img.size
+        needs_crop = is_full_person_crop or (auto_crop_face and (w > 260 or h > 260 or abs(w - h) > 60))
+        if needs_crop:
             pil_img = crop_face_region(pil_img)
 
         model, preprocess = get_feature_extractor()
@@ -262,7 +296,7 @@ def extract_face_embedding(
 
 def extract_augmented_embeddings(
     image_input: Union[str, np.ndarray, Image.Image],
-    is_full_person_crop: bool = False,
+    is_full_person_crop: bool = True,
 ) -> List[np.ndarray]:
     """
     สกัด Feature Vector พร้อม Data Augmentation (Original + Horizontal Mirror):
@@ -272,19 +306,21 @@ def extract_augmented_embeddings(
     if pil_img is None:
         return []
 
-    if is_full_person_crop:
+    # ตัดครอบเฉพาะใบหน้าก่อนทำการ Augment เสมอ เพื่อให้การ flip ได้ภาพใบหน้ากลับด้านที่ถูกต้อง
+    w, h = pil_img.size
+    if is_full_person_crop or w > 260 or h > 260 or abs(w - h) > 60:
         pil_img = crop_face_region(pil_img)
 
     results = []
-    # 1. Original Image Vector
-    emb_orig = extract_face_embedding(pil_img, is_full_person_crop=False)
+    # 1. Original Image Vector (already face-cropped)
+    emb_orig = extract_face_embedding(pil_img, is_full_person_crop=False, auto_crop_face=False)
     if emb_orig is not None:
         results.append(emb_orig)
 
     # 2. Horizontal Flipped Image Vector (Augmentation for head turns)
     try:
         mirrored_img = ImageOps.mirror(pil_img)
-        emb_flipped = extract_face_embedding(mirrored_img, is_full_person_crop=False)
+        emb_flipped = extract_face_embedding(mirrored_img, is_full_person_crop=False, auto_crop_face=False)
         if emb_flipped is not None:
             results.append(emb_flipped)
     except Exception as e:
@@ -351,12 +387,12 @@ def save_person_embeddings(
     if save_to_dataset:
         save_person_dataset_images(person_id, image_sources)
 
-    # 2. สกัด Feature Vectors พร้อม Augmentation
+    # 2. สกัด Feature Vectors พร้อม Augmentation (ตัดครอบเฉพาะใบหน้าคน)
     valid_embeddings = []
     for src in image_sources:
         if not src or not str(src).strip():
             continue
-        vectors = extract_augmented_embeddings(src, is_full_person_crop=False)
+        vectors = extract_augmented_embeddings(src, is_full_person_crop=True)
         valid_embeddings.extend(vectors)
 
     if not valid_embeddings:
@@ -545,7 +581,7 @@ def retrain_all_registered_persons(db: Session) -> Dict[str, Any]:
         person_vectors = []
         for img_path in image_files:
             total_images_processed += 1
-            aug_vectors = extract_augmented_embeddings(img_path, is_full_person_crop=False)
+            aug_vectors = extract_augmented_embeddings(img_path, is_full_person_crop=True)
             person_vectors.extend(aug_vectors)
 
         if not person_vectors:
@@ -645,7 +681,7 @@ def get_training_status(db: Optional[Session] = None) -> Dict[str, Any]:
 # -------------------------------------------------------------
 def match_face_embedding(
     crop_input: Union[str, np.ndarray, Image.Image],
-    threshold: float = 0.58,
+    threshold: float = 0.55,
     is_full_person_crop: bool = True,
 ) -> Tuple[Optional[Dict[str, Any]], float]:
     """

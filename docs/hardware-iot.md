@@ -46,12 +46,20 @@
    const char* ssid = "YOUR_WIFI_NAME";
    const char* password = "YOUR_WIFI_PASSWORD";
    ```
+   *(หมายเหตุ: ค่าเริ่มต้นใช้โหมด **Dynamic IP (DHCP)** โดยบอร์ดจะรับ IP Address จาก Router หรือ Mobile Hotspot อัตโนมัติ หากต้องการฟิกซ์ Static IP สามารถเปิดคอมเมนต์ตัวแปร `local_IP` ในโค้ดได้)*
 5. เสียบสาย USB เข้ากับพอร์ตของบอร์ด ESP32-S3 และกดปุ่ม **Upload**
-6. เปิด **Serial Monitor** ที่ความเร็ว `115200 bps` เพื่อดู IP Address ที่ได้รับจากเร้าเตอร์ เช่น:
+6. เปิด **Serial Monitor** ที่ความเร็ว `115200 bps` เพื่อดู IP Address ที่ได้รับแจกจ่ายจาก DHCP เซิร์ฟเวอร์ เช่น:
    ```text
-   Camera Ready! Use 'http://192.168.137.65' to connect
-   Stream: http://192.168.137.65/stream
-   Capture: http://192.168.137.65/capture
+   WiFi connected successfully (DHCP)!
+   ESP32-CAM IP Address: 192.168.1.150 (ตัวอย่าง IP ที่ได้รับจาก Router)
+   ==========================================================
+   CAMERA READY! (Dynamic IP / DHCP):
+   Web UI:                 http://192.168.1.150
+   Live MJPEG Stream:      http://192.168.1.150/stream
+   Single Snapshot:        http://192.168.1.150/capture
+   Status JSON:            http://192.168.1.150/status
+   Multi-client Support:   YES (FreeRTOS esp_http_server)
+   ==========================================================
    ```
 
 ---

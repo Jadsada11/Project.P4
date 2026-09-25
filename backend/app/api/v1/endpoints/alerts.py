@@ -119,3 +119,18 @@ def delete_alert(alert_id: int, db: Session = Depends(get_db)):
     db.commit()
     return None
 
+
+@router.post("/test-email", summary="ทดสอบส่งอีเมลแจ้งเตือนผ่าน Gmail SMTP")
+def test_email_alert(
+    recipient: Optional[str] = Query(None, description="อีเมลปลายทางที่ต้องการรับ (หากไม่ใส่จะใช้ค่าเริ่มต้นจาก .env)"),
+):
+    """
+    ทดสอบการเชื่อมต่อ Gmail SMTP และส่งอีเมลทดสอบไปยังปลายทางทันที
+    """
+    from app.services.email_service import send_test_email
+    res = send_test_email(recipient)
+    if not res.get("success"):
+        raise HTTPException(status_code=500, detail=res.get("message", "Email test failed"))
+    return res
+
+

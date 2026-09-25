@@ -16,14 +16,19 @@ flowchart TD
     end
 
     subgraph Backend_Server ["2. FastAPI Backend Server"]
-        YOLO["Stage 1: YOLOv8 Person Detection"]
-        CROP["Head & Face Region Alignment (Upper 35%)"]
+        YOLO["Stage 1: OpenCV YuNet Human Face Detection\n+ Landmark Geometric Anatomy Verification"]
+        SPOOF["Anti-Animal & Anti-Photo Spoofing\n(Moiré FFT, Skin Chrominance, Animal Filter)"]
         EMBED["Stage 2: MobileNetV3 Feature Extractor\n(576-dim L2 Vector)"]
         MATCH{"Cosine Matching Engine\nThreshold >= 0.58"}
         CLASS["Person Classifier (3 Categories)"]
         ALERT["Alert Dispatcher & Event Hub"]
+        EMAIL["Gmail SMTP Dispatcher\n(Non-blocking & Cooldown)"]
         DB[(SQLite: vigil.db\nUsers, Persons, History, Alerts)]
         VEC[(face_embeddings.json)]
+    end
+
+    subgraph External_Notify ["4. External Notifications"]
+        MAILBOX["User Email Inbox\n(thanakornnillamai@gmail.com)\nInline Snapshot & Alert Info"]
     end
 
     subgraph Frontend_App ["3. Web Dashboard (React 19 + Tailwind v4)"]
@@ -35,11 +40,13 @@ flowchart TD
     end
 
     CAM -->|MJPEG / Snapshot JPEG| YOLO
-    YOLO --> CROP --> EMBED
+    YOLO --> SPOOF --> EMBED
     EMBED --> MATCH
+
     VEC -.->|Embeddings| MATCH
     MATCH --> CLASS
     CLASS --> ALERT --> DB
+    ALERT --> EMAIL --> MAILBOX
     CLASS --> DB
     DB <-->|REST API & Real-time Events| Frontend_App
 ```
@@ -53,8 +60,8 @@ flowchart TD
 | กลุ่มบุคคล | ป้ายกำกับ (Category) | สีประจำกลุ่ม (UI) | เกณฑ์การจำแนก | พฤติกรรมระบบและการแจ้งเตือน |
 | :--- | :--- | :--- | :--- | :--- |
 | **คนในบ้าน** | `household` | 🟢 เขียว (`#2e7d32`) | จับคู่กับสมาชิกในบ้านที่ลงทะเบียนไว้สำเร็จ (Cosine Similarity $\ge 0.58$) | • แสดงชื่อสมาชิกจริง<br>• ป้ายสถานะ: ปลอดภัย (`VERIFIED OK`)<br>• แจ้งเตือนระดับ `info` ยินดีต้อนรับกลับบ้าน |
-| **คนส่งของ** | `delivery` | 🟡 ส้ม/อำพัน (`#e65100`) | ตรวจพบคู่สีเครื่องแบบพัสดุ (Flash, Kerry, Grab) หรือลงทะเบียนเป็นไรเดอร์ประจำ | • แสดงชื่อขนส่งหรือชื่อไรเดอร์<br>• ป้ายสถานะ: พัสดุมาส่ง (`DELIVERY EVENT`)<br>• แจ้งเตือนระดับ `info/notice` ให้ทราบว่ามีพัสดุมาส่ง |
-| **คนแปลกหน้า** | `stranger` | 🔴 แดง (`#c62828`) | ไม่ตรงกับฐานข้อมูลใบหน้าที่เทรนไว้ และไม่มีเครื่องแบบขนส่ง | • ระบุเป็นบุคคลแปลกหน้า (Stranger)<br>• ป้ายสถานะ: เฝ้าระวัง (`ALERT RECORDED`)<br>• **สร้าง Security Alert ระดับ `warning` หรือ `critical` ทันที** |
+| **คนส่งของ** | `delivery` | 🟡 ส้ม/อำพัน (`#e65100`) | ตรวจพบคู่สีเครื่องแบบพัสดุ (Flash, Kerry, Grab) หรือลงทะเบียนเป็นไรเดอร์ประจำ | • แสดงชื่อขนส่งหรือชื่อไรเดอร์<br>• ป้ายสถานะ: พัสดุมาส่ง (`DELIVERY EVENT`)<br>• แจ้งเตือนระดับ `info/notice`<br>• **ส่งอีเมลแจ้งเตือนพร้อมรูปถ่ายคนส่งของทันที** |
+| **คนแปลกหน้า** | `stranger` | 🔴 แดง (`#c62828`) | ไม่ตรงกับฐานข้อมูลใบหน้าที่เทรนไว้ และไม่มีเครื่องแบบขนส่ง | • ระบุเป็นบุคคลแปลกหน้า (Stranger)<br>• ป้ายสถานะ: เฝ้าระวัง (`ALERT RECORDED`)<br>• **สร้าง Security Alert และส่งอีเมลแจ้งเตือนฉุกเฉินทันที** |
 
 ---
 

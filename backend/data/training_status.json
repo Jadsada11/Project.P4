@@ -1,19 +1,19 @@
 {
   "status": "ready",
   "model_name": "MobileNetV3 + Cosine Metric Learning",
-  "last_trained": "2026-09-16T12:55:44.002442+00:00",
+  "last_trained": "2026-09-21T10:06:37.618149+00:00",
   "total_persons": 1,
-  "total_samples": 11,
-  "average_accuracy": 98.9,
-  "loss": 0.011,
+  "total_samples": 73,
+  "average_accuracy": 94.7,
+  "loss": 0.053,
   "inference_speed_ms": 13.8,
-  "elapsed_ms": 440,
+  "elapsed_ms": 18876,
   "logs": [
-    "[19:55:43] [TRAINER] Starting Full Face Metric Retraining Pipeline...",
-    "[19:55:43] [MODEL] Initializing MobileNetV3-Small (576-dim L2 Metric Extractor)...",
-    "[19:55:43] [DATABASE] Found 1 active identity profiles in SQLite.",
-    "[19:55:43] [TRAINED] #1 nun (delivery): 11 images (22 augmented) | Intra-consistency: 98.9%",
-    "[19:55:44] [CENTROID] Normalized 1 person identity vectors into L2 space.",
-    "[19:55:44] [COMPLETE] Retraining finished in 440ms. Overall Accuracy: 98.9%."
+    "[17:06:18] [TRAINER] Starting Full Face Metric Retraining Pipeline...",
+    "[17:06:18] [MODEL] Initializing MobileNetV3-Small (576-dim L2 Metric Extractor)...",
+    "[17:06:18] [DATABASE] Found 1 active identity profiles in SQLite.",
+    "[17:06:37] [TRAINED] #1 Ball (delivery): 73 images (146 augmented) | Intra-consistency: 94.7%",
+    "[17:06:37] [CENTROID] Normalized 1 person identity vectors into L2 space.",
+    "[17:06:37] [COMPLETE] Retraining finished in 18876ms. Overall Accuracy: 94.7%."
   ]
 }

@@ -29,7 +29,8 @@ backend/
 │   ├── services/                # Business Logic & AI Engines
 │   │   ├── yolo_service.py      # Ultralytics YOLOv8 Inference
 │   │   ├── face_embedding_service.py # MobileNetV3 576-dim L2 Metric Extractor
-│   │   └── person_classifier.py # จำแนก 3 กลุ่มบุคคลและสร้าง Event Alert
+│   │   ├── person_classifier.py # จำแนก 3 กลุ่มบุคคลและสร้าง Event Alert
+│   │   └── email_service.py     # ระบบส่งอีเมลแจ้งเตือนผ่าน Gmail SMTP (Non-blocking Threading)
 │   └── api/                     # เส้นทาง API (Endpoints & Dependency Injection)
 │       ├── deps.py              # Dependencies: get_db, get_current_user, get_current_active_user
 │       └── v1/
@@ -274,6 +275,24 @@ Interactive Swagger UI: `http://localhost:8000/docs`
 - `DELETE /api/v1/alerts`
 - Query Params: `category` (optional), `read_only` (bool, optional), `unread_only` (bool, optional)
 - Response `200 OK`: `{"message": "ลบการแจ้งเตือนสำเร็จ 5 รายการ", "deleted_count": 5, "count": 5}`
+
+#### ทดสอบส่งอีเมลแจ้งเตือนผ่าน Gmail SMTP (Test Email)
+- `POST /api/v1/alerts/test-email`
+- Query Params: `recipient` (optional - หากไม่ระบุจะใช้ `NOTIFICATION_RECIPIENT_EMAIL` จาก `.env`)
+- Response `200 OK`:
+  ```json
+  {
+    "success": true,
+    "message": "ส่งอีเมลทดสอบไปยัง thanakornnillamai@gmail.com สำเร็จเรียบร้อยแล้ว!",
+    "recipient": "thanakornnillamai@gmail.com"
+  }
+  ```
+
+#### ระบบแจ้งเตือนทางอีเมลอัตโนมัติ (Automated Email Alerts)
+- **ทริกเกอร์:** ทำงานอัตโนมัติเมื่อ `person_classifier.py` ตรวจพบ `category == "delivery"` (คนมาส่งของ) หรือ `category == "stranger"` (คนแปลกหน้า)
+- **สถาปัตยกรรม:** ส่งผ่าน Non-blocking Background Thread (`email_service.py`) เพื่อไม่ให้หน่วงลูป YOLO Inference
+- **การแนบรูปภาพ:** แนบภาพถ่ายสแนปช็อตแบบ Inline Attachment (CID Image) เพื่อให้เปิดดูภาพใบหน้า/คนส่งของได้ทันทีจากแอปอีเมลบนมือถือ
+- **Anti-Spam Cooldown:** มีระบบ Cooldown 60 วินาทีป้องกันการส่งอีเมลซ้ำซ้อนจากเฟรมวิดีโอต่อเนื่อง
 
 ---
 

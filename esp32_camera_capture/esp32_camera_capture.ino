@@ -15,17 +15,18 @@
 // =========================================================================
 
 // =========================
-// WiFi Credentials & Static IP Configuration
+// WiFi Credentials (DHCP / Dynamic IP)
 // =========================
-const char* ssid = "bas";
-const char* password = "12345678";
+const char* ssid = "test1";
+const char* password = "00000000";
 
-// กำหนด Static IP แบบคงที่ เพื่อไม่ให้ IP เปลี่ยน (http://192.168.137.65)
-IPAddress local_IP(192, 168, 137, 65);     // IP ที่ต้องการล็อกให้ ESP32
-IPAddress gateway(192, 168, 137, 1);       // Gateway (IP เครื่องปล่อย Hotspot / Router)
-IPAddress subnet(255, 255, 255, 0);        // Subnet Mask
-IPAddress primaryDNS(192, 168, 137, 1);    // Primary DNS
-IPAddress secondaryDNS(8, 8, 8, 8);        // Secondary DNS (Google DNS)
+// โหมด Dynamic IP (DHCP / Auto): บอร์ดจะได้รับ IP Address อัตโนมัติจาก Router / Hotspot
+// หากต้องการกลับไปใช้ Static IP ในอนาคต ให้เอาคอมเมนต์ด้านล่างออก:
+// IPAddress local_IP(192, 168, 137, 65);     // IP ที่ต้องการล็อกให้ ESP32
+// IPAddress gateway(192, 168, 137, 1);       // Gateway (IP เครื่องปล่อย Hotspot / Router)
+// IPAddress subnet(255, 255, 255, 0);        // Subnet Mask
+// IPAddress primaryDNS(192, 168, 137, 1);    // Primary DNS
+// IPAddress secondaryDNS(8, 8, 8, 8);        // Secondary DNS (Google DNS)
 
 // =========================
 // DFRobot ESP32-S3 AI Camera Pinout (OV3660)
@@ -505,20 +506,16 @@ void setup() {
     ESP.restart();
   }
 
-  // WiFi Connection (ล็อก Static IP ให้กล้องเป็น 192.168.137.65 แบบถาวร ไม่เปลี่ยน)
+  // WiFi Connection (Dynamic IP / DHCP Mode รับ IP อัตโนมัติจากเราเตอร์)
   WiFi.disconnect(true);
   delay(100);
   WiFi.mode(WIFI_STA);
 
-  if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
-    Serial.println("Re-applying Static IP: 192.168.137.65...");
-    WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS);
-  } else {
-    Serial.println("Static IP configured: 192.168.137.65");
-  }
+  // รีเซ็ตการตั้งค่าเป็น DHCP (Dynamic IP) เพื่อรับ IP จาก Router โดยอัตโนมัติ
+  WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE);
 
   WiFi.begin(ssid, password);
-  Serial.print("Connecting to WiFi: ");
+  Serial.print("Connecting to WiFi (DHCP): ");
   Serial.println(ssid);
 
   int wifiAttempts = 30; // รอ 15 วินาที
@@ -530,14 +527,13 @@ void setup() {
 
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println();
-    Serial.println("WiFi connected successfully!");
+    Serial.println("WiFi connected successfully (DHCP)!");
     Serial.print("ESP32-CAM IP Address: ");
     Serial.println(WiFi.localIP());
   } else {
     Serial.println();
-    Serial.println("WiFi not connected yet! Starting Fallback AP with Locked IP: 192.168.137.65...");
+    Serial.println("WiFi not connected yet! Starting Fallback AP mode...");
     WiFi.mode(WIFI_AP_STA);
-    WiFi.softAPConfig(local_IP, gateway, subnet);
     WiFi.softAP("Vigil-ESP32-CAM", "12345678");
     Serial.print("AP Mode Active - IP Address: ");
     Serial.println(WiFi.softAPIP());
@@ -546,11 +542,13 @@ void setup() {
   // Start Multi-Socket HTTP Server
   startCameraServer();
 
+  IPAddress activeIP = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP() : WiFi.softAPIP();
   Serial.println("==========================================================");
-  Serial.println("PERMANENT CAMERA URLS (LOCKED):");
-  Serial.println("Live MJPEG Stream:      http://192.168.137.65/stream");
-  Serial.println("Single Snapshot:        http://192.168.137.65/capture");
-  Serial.println("Status JSON:            http://192.168.137.65/status");
+  Serial.println("CAMERA READY! (Dynamic IP / DHCP):");
+  Serial.print("Web UI:                 http://"); Serial.println(activeIP);
+  Serial.print("Live MJPEG Stream:      http://"); Serial.print(activeIP); Serial.println("/stream");
+  Serial.print("Single Snapshot:        http://"); Serial.print(activeIP); Serial.println("/capture");
+  Serial.print("Status JSON:            http://"); Serial.print(activeIP); Serial.println("/status");
   Serial.println("Multi-client Support:   YES (FreeRTOS esp_http_server)");
   Serial.println("==========================================================");
 }
@@ -565,8 +563,7 @@ void loop() {
   if (millis() - lastCheck > 6000) {
     lastCheck = millis();
     if (WiFi.status() != WL_CONNECTED && (WiFi.getMode() & WIFI_MODE_STA)) {
-      Serial.println("[WiFi] Reconnecting with locked Static IP 192.168.137.65...");
-      WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS);
+      Serial.println("[WiFi] Connection lost. Reconnecting (DHCP)...");
       WiFi.reconnect();
     }
   }
