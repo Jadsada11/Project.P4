@@ -11,7 +11,7 @@ router = APIRouter()
 
 @router.get("", response_model=List[AlertResponse], summary="ดึงรายการแจ้งเตือนทั้งหมด")
 def get_alerts(
-    category: Optional[str] = Query(None, description="กรองตามประเภท: 'household', 'delivery', 'stranger'"),
+    category: Optional[str] = Query(None, description="กรองตามประเภท: 'household', 'neighbor', 'friend', 'delivery', 'other', 'stranger'"),
     unread_only: bool = Query(False, description="เฉพาะรายการที่ยังไม่อ่าน"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),

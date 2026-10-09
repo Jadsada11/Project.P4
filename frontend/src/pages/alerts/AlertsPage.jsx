@@ -347,6 +347,9 @@ export default function AlertsPage() {
           { id: "stranger", label: "⚠️ คนแปลกหน้า (Stranger)" },
           { id: "delivery", label: "📦 คนส่งของ (Delivery)" },
           { id: "household", label: "🟢 คนในบ้าน (Household)" },
+          { id: "neighbor", label: "🩵 เพื่อนบ้าน (Neighbor)" },
+          { id: "friend", label: "💜 เพื่อน (Friend)" },
+          { id: "other", label: "⚪ อื่นๆ (Other)" },
         ].map((cat) => (
           <button
             key={cat.id}
@@ -574,10 +577,13 @@ export default function AlertsPage() {
                   <label className="text-xs font-semibold text-[#1a1a1a] uppercase tracking-wider">
                     กลุ่มหมวดหมู่ (Category) *
                   </label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
                     {[
                       { id: "household", label: "คนในบ้าน" },
+                      { id: "neighbor", label: "เพื่อนบ้าน" },
+                      { id: "friend", label: "เพื่อน" },
                       { id: "delivery", label: "คนส่งของ" },
+                      { id: "other", label: "อื่นๆ" },
                       { id: "stranger", label: "คนแปลกหน้า" },
                     ].map((cat) => (
                       <button
@@ -587,7 +593,20 @@ export default function AlertsPage() {
                           setNewPersonForm({
                             ...newPersonForm,
                             category: cat.id,
-                            role: cat.id === "household" ? "Family" : cat.id === "delivery" ? "Delivery" : "Stranger",
+                            role:
+                              cat.id === "household" ? "Family"
+                              : cat.id === "neighbor" ? "Neighbor"
+                              : cat.id === "friend" ? "Friend"
+                              : cat.id === "delivery" ? "Delivery"
+                              : cat.id === "other" ? "Guest"
+                              : "Stranger",
+                            department:
+                              cat.id === "household" ? "ครอบครัว"
+                              : cat.id === "neighbor" ? "เพื่อนบ้าน"
+                              : cat.id === "friend" ? "เพื่อน"
+                              : cat.id === "delivery" ? "ขนส่งพัสดุ"
+                              : cat.id === "other" ? "ทั่วไป"
+                              : "",
                           })
                         }
                         className={`p-2 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center ${

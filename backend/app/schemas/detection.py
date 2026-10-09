@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 class DetectionItem(BaseModel):
     person_name: str = "คนแปลกหน้า (Stranger)"
-    category: str = Field("stranger", description="'household' (คนในบ้าน), 'delivery' (คนส่งของ), 'stranger' (คนแปลกหน้า)")
+    category: str = Field("stranger", description="'household' (คนในบ้าน), 'neighbor' (เพื่อนบ้าน), 'friend' (เพื่อน), 'delivery' (คนส่งของ), 'other' (อื่นๆ), 'stranger' (คนแปลกหน้า)")
     confidence: float = 0.0
     bounding_box: List[int] = Field(default_factory=list, description="[x1, y1, x2, y2]")
     alert_created: bool = False
@@ -52,6 +52,9 @@ class DetectionSummaryStats(BaseModel):
     household_count: int = 0
     delivery_count: int = 0
     stranger_count: int = 0
+    neighbor_count: int = 0
+    friend_count: int = 0
+    other_count: int = 0
     alerts_count: int = 0
 
 
@@ -60,7 +63,7 @@ class IdentifyPersonRequest(BaseModel):
     person_id: Optional[int] = Field(None, description="ID บุคคลที่มีอยู่ในฐานข้อมูล (กรณี mode=existing)")
     # ข้อมูลสำหรับสร้างบุคคลใหม่ (กรณี mode=new)
     name: Optional[str] = Field(None, description="ชื่อ-นามสกุล")
-    category: Optional[str] = Field("household", description="'household', 'delivery', หรือ 'stranger'")
+    category: Optional[str] = Field("household", description="'household', 'neighbor', 'friend', 'delivery', 'other', หรือ 'stranger'")
     role: Optional[str] = Field("Family", description="บทบาทหรือความสัมพันธ์ เช่น Family, VIP, Grab")
     department: Optional[str] = Field("", description="สังกัด/แผนก")
     notes: Optional[str] = Field("", description="หมายเหตุเพิ่มเติม")

@@ -60,7 +60,7 @@ def process_photo_url(url: Optional[str]) -> str:
 
 @router.get("", response_model=List[PersonResponse], summary="ดึงรายชื่อบุคคลที่ลงทะเบียนไว้ทั้งหมด")
 def get_persons(
-    category: Optional[str] = Query(None, description="กรองตามประเภท: 'household', 'delivery', 'stranger'"),
+    category: Optional[str] = Query(None, description="กรองตามประเภท: 'household', 'neighbor', 'friend', 'delivery', 'other', 'stranger'"),
     search: Optional[str] = Query(None, description="ค้นหาตามชื่อหรือสังกัด"),
     db: Session = Depends(get_db),
 ):

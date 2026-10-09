@@ -72,6 +72,30 @@ def get_detection_stats(db: Session = Depends(get_db)):
         )
         .count()
     )
+    neighbor_count = (
+        db.query(DetectionHistory)
+        .filter(
+            DetectionHistory.timestamp >= today_start,
+            DetectionHistory.category == "neighbor",
+        )
+        .count()
+    )
+    friend_count = (
+        db.query(DetectionHistory)
+        .filter(
+            DetectionHistory.timestamp >= today_start,
+            DetectionHistory.category == "friend",
+        )
+        .count()
+    )
+    other_count = (
+        db.query(DetectionHistory)
+        .filter(
+            DetectionHistory.timestamp >= today_start,
+            DetectionHistory.category == "other",
+        )
+        .count()
+    )
     alerts_count = (
         db.query(Alert)
         .filter(Alert.created_at >= today_start)
@@ -84,6 +108,9 @@ def get_detection_stats(db: Session = Depends(get_db)):
         household_count = db.query(DetectionHistory).filter(DetectionHistory.category == "household").count()
         delivery_count = db.query(DetectionHistory).filter(DetectionHistory.category == "delivery").count()
         stranger_count = db.query(DetectionHistory).filter(DetectionHistory.category == "stranger").count()
+        neighbor_count = db.query(DetectionHistory).filter(DetectionHistory.category == "neighbor").count()
+        friend_count = db.query(DetectionHistory).filter(DetectionHistory.category == "friend").count()
+        other_count = db.query(DetectionHistory).filter(DetectionHistory.category == "other").count()
         alerts_count = db.query(Alert).count()
 
     return DetectionSummaryStats(
@@ -91,6 +118,9 @@ def get_detection_stats(db: Session = Depends(get_db)):
         household_count=household_count,
         delivery_count=delivery_count,
         stranger_count=stranger_count,
+        neighbor_count=neighbor_count,
+        friend_count=friend_count,
+        other_count=other_count,
         alerts_count=alerts_count,
     )
 
@@ -207,7 +237,14 @@ def identify_history_person(
             raise HTTPException(status_code=400, detail="name is required for new person")
 
         cat = req.category or "household"
-        role_val = req.role or ("Family" if cat == "household" else "Delivery" if cat == "delivery" else "Stranger")
+        role_val = req.role or (
+            "Family" if cat == "household"
+            else "Neighbor" if cat == "neighbor"
+            else "Friend" if cat == "friend"
+            else "Delivery" if cat == "delivery"
+            else "Other" if cat == "other"
+            else "Stranger"
+        )
         person = Person(
             name=req.name.strip(),
             category=cat,
@@ -237,8 +274,19 @@ def identify_history_person(
             linked_alert.title = f"ยืนยันตัวตนแล้ว: {person.name} (คนในบ้าน)"
             linked_alert.severity = "info"
             linked_alert.is_read = True
+        elif person.category == "neighbor":
+            linked_alert.title = f"ยืนยันตัวตนแล้ว: {person.name} (เพื่อนบ้าน)"
+            linked_alert.severity = "info"
+            linked_alert.is_read = True
+        elif person.category == "friend":
+            linked_alert.title = f"ยืนยันตัวตนแล้ว: {person.name} (เพื่อน)"
+            linked_alert.severity = "info"
+            linked_alert.is_read = True
         elif person.category == "delivery":
             linked_alert.title = f"ยืนยันตัวตนแล้ว: {person.name} (คนส่งของ)"
+            linked_alert.severity = "info"
+        elif person.category == "other":
+            linked_alert.title = f"ยืนยันตัวตนแล้ว: {person.name} (อื่นๆ)"
             linked_alert.severity = "info"
         else:
             linked_alert.title = f"บันทึกบุคคลเฝ้าระวัง: {person.name} (คนแปลกหน้า)"

@@ -14,6 +14,8 @@ import {
   ImagePlus,
   CheckCircle2,
   FileImage,
+  Users,
+  Smile,
 } from "lucide-react";
 import { Input, Textarea } from "../../components/common/Input";
 import Button from "../../components/common/Button";
@@ -47,12 +49,36 @@ export default function AddPersonPage() {
       activeColor: "border-[#2e7d32] bg-[#c8e6c9] text-[#1b5e20] shadow-sm",
     },
     {
+      id: "neighbor",
+      label: "เพื่อนบ้าน (Neighbor)",
+      description: "เพื่อนบ้านและผู้อาศัยใกล้เคียง",
+      icon: Users,
+      color: "border-[#80deea] bg-[#e0f7fa]/60 text-[#00838f]",
+      activeColor: "border-[#00838f] bg-[#b2ebf2] text-[#006064] shadow-sm",
+    },
+    {
+      id: "friend",
+      label: "เพื่อน (Friend)",
+      description: "เพื่อน คนสนิท หรือแขกที่มาเยี่ยม",
+      icon: Smile,
+      color: "border-[#ce93d8] bg-[#f3e5f5]/60 text-[#7b1fa2]",
+      activeColor: "border-[#7b1fa2] bg-[#e1bee7] text-[#4a148c] shadow-sm",
+    },
+    {
       id: "delivery",
       label: "คนส่งของ (Delivery)",
       description: "เจ้าหน้าที่พัสดุและไรเดอร์ขนส่ง",
       icon: Package,
       color: "border-[#ffb74d] bg-[#fff3e0]/60 text-[#e65100]",
       activeColor: "border-[#e65100] bg-[#ffe0b2] text-[#bf360c] shadow-sm",
+    },
+    {
+      id: "other",
+      label: "อื่นๆ (Other)",
+      description: "บุคคลอื่นๆ ที่ได้รับอนุญาต",
+      icon: Sparkles,
+      color: "border-[#cbd5e1] bg-[#f8fafc]/60 text-[#475569]",
+      activeColor: "border-[#475569] bg-[#e2e8f0] text-[#1e293b] shadow-sm",
     },
     {
       id: "stranger",
@@ -174,18 +200,31 @@ export default function AddPersonPage() {
         name: fullName.trim(),
         category: category,
         role:
-          category === "household"
-            ? role || "Family"
+          role.trim() ||
+          (category === "household"
+            ? "Family"
+            : category === "neighbor"
+            ? "Neighbor"
+            : category === "friend"
+            ? "Friend"
             : category === "delivery"
             ? "Delivery"
-            : "Stranger",
+            : category === "other"
+            ? "Guest"
+            : "Stranger"),
         department:
           department.trim() ||
           (category === "household"
-            ? "Residence"
+            ? "ครอบครัว (Residence)"
+            : category === "neighbor"
+            ? "เพื่อนบ้าน (Neighborhood)"
+            : category === "friend"
+            ? "เพื่อน/คนสนิท (Friend)"
             : category === "delivery"
-            ? "Courier"
-            : "Unknown"),
+            ? "พนักงานขนส่ง (Courier)"
+            : category === "other"
+            ? "ทั่วไป (General)"
+            : "ไม่ระบุ (Unknown)"),
         notes: notes.trim(),
         photo_url: photoUrl,
         dataset_images: images.map((img) => img.url),
@@ -244,7 +283,7 @@ export default function AddPersonPage() {
             <label className="text-xs font-bold text-[#1a1a1a] uppercase tracking-wider">
               ประเภทบุคคล (Classification Category) *
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {categories.map((cat) => {
                 const active = category === cat.id;
                 const IconComponent = cat.icon;
@@ -255,7 +294,10 @@ export default function AddPersonPage() {
                     onClick={() => {
                       setCategory(cat.id);
                       if (cat.id === "household") setRole("Family");
+                      else if (cat.id === "neighbor") setRole("Neighbor");
+                      else if (cat.id === "friend") setRole("Friend");
                       else if (cat.id === "delivery") setRole("Delivery");
+                      else if (cat.id === "other") setRole("Guest");
                       else setRole("Stranger");
                     }}
                     className={`p-4 rounded-2xl border text-left cursor-pointer transition-all flex flex-col gap-2 ${

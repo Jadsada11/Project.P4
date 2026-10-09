@@ -40,6 +40,9 @@ export default function HistoryPage() {
     household_count: 0,
     delivery_count: 0,
     stranger_count: 0,
+    neighbor_count: 0,
+    friend_count: 0,
+    other_count: 0,
     alerts_count: 0,
   });
 
@@ -408,7 +411,10 @@ export default function HistoryPage() {
           {[
             { id: "ALL", label: `ทั้งหมด (${history.length})` },
             { id: "household", label: "🟢 คนในบ้าน" },
+            { id: "neighbor", label: "🩵 เพื่อนบ้าน" },
+            { id: "friend", label: "💜 เพื่อน" },
             { id: "delivery", label: "📦 คนส่งของ" },
+            { id: "other", label: "⚪ อื่นๆ" },
             { id: "stranger", label: "⚠️ คนแปลกหน้า" },
           ].map((cat) => (
             <button
@@ -952,15 +958,30 @@ export default function HistoryPage() {
                         setNewPersonForm({
                           ...newPersonForm,
                           category: cat,
-                          role: cat === "delivery" ? "Delivery" : cat === "stranger" ? "Guest" : "Family",
-                          department: cat === "delivery" ? "ขนส่งพัสดุ" : "ครอบครัว",
+                          role:
+                            cat === "household" ? "Family"
+                            : cat === "neighbor" ? "Neighbor"
+                            : cat === "friend" ? "Friend"
+                            : cat === "delivery" ? "Delivery"
+                            : cat === "other" ? "Guest"
+                            : "Stranger",
+                          department:
+                            cat === "household" ? "ครอบครัว"
+                            : cat === "neighbor" ? "เพื่อนบ้าน"
+                            : cat === "friend" ? "เพื่อน/คนสนิท"
+                            : cat === "delivery" ? "ขนส่งพัสดุ"
+                            : cat === "other" ? "ทั่วไป"
+                            : "",
                         });
                       }}
                       className="w-full bg-white border border-[#e8e0d5] text-[#1a1a1a] text-xs font-semibold rounded-xl px-3.5 py-2.5 outline-none focus:border-[#e8b48a] cursor-pointer"
                     >
-                      <option value="household">คนในบ้าน (Household)</option>
-                      <option value="delivery">คนส่งของ (Delivery)</option>
-                      <option value="stranger">คนแปลกหน้า / แขก (Stranger)</option>
+                      <option value="household">🟢 คนในบ้าน (Household)</option>
+                      <option value="neighbor">🩵 เพื่อนบ้าน (Neighbor)</option>
+                      <option value="friend">💜 เพื่อน (Friend)</option>
+                      <option value="delivery">📦 คนส่งของ (Delivery)</option>
+                      <option value="other">⚪ อื่นๆ (Other)</option>
+                      <option value="stranger">⚠️ คนแปลกหน้า (Stranger)</option>
                     </select>
                   </div>
 

@@ -1012,31 +1012,58 @@ export default function DetectionPage() {
               {showBoxes &&
                 activeDetections.map((det, index) => {
                   const isHousehold = det.category === "household";
+                  const isNeighbor = det.category === "neighbor";
+                  const isFriend = det.category === "friend";
                   const isDelivery = det.category === "delivery";
+                  const isOther = det.category === "other";
                   const isStranger = det.category === "stranger";
 
                   const borderColor = isHousehold
                     ? "border-[#4ade80]"
+                    : isNeighbor
+                    ? "border-[#22d3ee]"
+                    : isFriend
+                    ? "border-[#c084fc]"
                     : isDelivery
                     ? "border-[#fbbf24]"
+                    : isOther
+                    ? "border-[#94a3b8]"
                     : "border-[#f87171]";
 
                   const shadowColor = isHousehold
                     ? "shadow-[0_0_20px_rgba(74,222,128,0.7)]"
+                    : isNeighbor
+                    ? "shadow-[0_0_20px_rgba(34,211,238,0.7)]"
+                    : isFriend
+                    ? "shadow-[0_0_20px_rgba(192,132,252,0.7)]"
                     : isDelivery
                     ? "shadow-[0_0_20px_rgba(251,191,36,0.7)]"
+                    : isOther
+                    ? "shadow-[0_0_20px_rgba(148,163,184,0.7)]"
                     : "shadow-[0_0_20px_rgba(248,113,113,0.8)]";
 
                   const tagBg = isHousehold
                     ? "bg-[#2e7d32] text-white"
+                    : isNeighbor
+                    ? "bg-[#00838f] text-white"
+                    : isFriend
+                    ? "bg-[#7b1fa2] text-white"
                     : isDelivery
                     ? "bg-[#f57f17] text-white"
+                    : isOther
+                    ? "bg-[#475569] text-white"
                     : "bg-[#c62828] text-white";
 
                   const categoryLabel = isHousehold
                     ? "คนในบ้าน (Household)"
+                    : isNeighbor
+                    ? "เพื่อนบ้าน (Neighbor)"
+                    : isFriend
+                    ? "เพื่อน (Friend)"
                     : isDelivery
                     ? "คนส่งของ (Delivery)"
+                    : isOther
+                    ? "อื่นๆ (Other)"
                     : "คนแปลกหน้า (Stranger)";
 
                   let boxStyle = { top: "16%", left: "26%", width: "48%", height: "60%" };
@@ -1058,6 +1085,9 @@ export default function DetectionPage() {
                       <div className="flex items-start justify-between gap-1">
                         <span className="bg-black/80 text-white text-xs font-bold px-2 py-0.5 rounded shadow-sm border border-white/20">
                           {det.person_name}
+                          {det.role && det.role !== det.person_name && det.role !== "Stranger" && (
+                            <span className="text-[#f5c9a8] ml-1 font-medium">({det.role})</span>
+                          )}
                         </span>
                         <span className={`${tagBg} text-[10px] font-bold px-2 py-0.5 rounded shadow-xs`}>
                           {categoryLabel} • {det.confidence}%
@@ -1162,7 +1192,10 @@ export default function DetectionPage() {
               {[
                 { id: "ALL", label: "ทั้งหมด" },
                 { id: "household", label: "คนในบ้าน" },
+                { id: "neighbor", label: "เพื่อนบ้าน" },
+                { id: "friend", label: "เพื่อน" },
                 { id: "delivery", label: "คนส่งของ" },
+                { id: "other", label: "อื่นๆ" },
                 { id: "stranger", label: "คนแปลกหน้า" },
               ].map((cat) => (
                 <button
@@ -1559,10 +1592,13 @@ export default function DetectionPage() {
                   <label className="text-xs font-semibold text-[#1a1a1a] uppercase tracking-wider">
                     กลุ่มหมวดหมู่ (Category) *
                   </label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
                     {[
                       { id: "household", label: "คนในบ้าน", color: "border-[#81c784] text-[#2e7d32]" },
+                      { id: "neighbor", label: "เพื่อนบ้าน", color: "border-[#80deea] text-[#00838f]" },
+                      { id: "friend", label: "เพื่อน", color: "border-[#ce93d8] text-[#7b1fa2]" },
                       { id: "delivery", label: "คนส่งของ", color: "border-[#ffb74d] text-[#e65100]" },
+                      { id: "other", label: "อื่นๆ", color: "border-[#cbd5e1] text-[#475569]" },
                       { id: "stranger", label: "คนแปลกหน้า", color: "border-[#e57373] text-[#c62828]" },
                     ].map((cat) => (
                       <button
@@ -1572,7 +1608,20 @@ export default function DetectionPage() {
                           setNewPersonForm({
                             ...newPersonForm,
                             category: cat.id,
-                            role: cat.id === "household" ? "Family" : cat.id === "delivery" ? "Delivery" : "Stranger",
+                            role:
+                              cat.id === "household" ? "Family"
+                              : cat.id === "neighbor" ? "Neighbor"
+                              : cat.id === "friend" ? "Friend"
+                              : cat.id === "delivery" ? "Delivery"
+                              : cat.id === "other" ? "Guest"
+                              : "Stranger",
+                            department:
+                              cat.id === "household" ? "ครอบครัว"
+                              : cat.id === "neighbor" ? "เพื่อนบ้าน"
+                              : cat.id === "friend" ? "เพื่อน"
+                              : cat.id === "delivery" ? "ขนส่งพัสดุ"
+                              : cat.id === "other" ? "ทั่วไป"
+                              : "",
                           })
                         }
                         className={`p-2 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center ${

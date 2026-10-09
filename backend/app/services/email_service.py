@@ -138,6 +138,21 @@ def _send_alert_worker(
         badge_color = "#ef4444"
         header_title = "⚠️ ตรวจพบบุคคลแปลกหน้าบริเวณทางเข้า"
         badge_text = "STRANGER (คนแปลกหน้า)"
+    elif category == "neighbor":
+        subject = f"🩵 [Vigil Alert] ตรวจพบเพื่อนบ้าน: {person_name} ({location})"
+        badge_color = "#00838f"
+        header_title = "🩵 ตรวจพบเพื่อนบ้านเข้าสู่บริเวณ"
+        badge_text = "NEIGHBOR (เพื่อนบ้าน)"
+    elif category == "friend":
+        subject = f"💜 [Vigil Alert] ตรวจพบเพื่อน: {person_name} ({location})"
+        badge_color = "#7b1fa2"
+        header_title = "💜 ตรวจพบเพื่อนสนิท/ผู้มาเยือน"
+        badge_text = "FRIEND (เพื่อน/แขก)"
+    elif category == "other":
+        subject = f"⚪ [Vigil Alert] ตรวจพบบุคคลที่บันทึกไว้: {person_name} ({location})"
+        badge_color = "#616161"
+        header_title = "⚪ ตรวจพบบุคคลทั่วไปที่ลงทะเบียนไว้"
+        badge_text = "OTHER (บุคคลอื่นๆ)"
     else:
         subject = f"🟢 [Vigil Alert] ตรวจพบสมาชิกในบ้าน: {person_name} ({location})"
         badge_color = "#10b981"

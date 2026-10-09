@@ -12,9 +12,12 @@
 3. **Backend Server**: FastAPI with SQLite (`vigil.db`) and SQLAlchemy 2.0 ORM with JWT authentication.
 4. **Web Frontend**: Modern React 19 dashboard styled with Tailwind CSS v4 (Peach & Cream theme palette).
 
-The system classifies individuals into **3 Categories**:
+The system classifies individuals into **6 Categories**:
 - `household` (🟢 Green): Recognized family members / residents.
+- `neighbor` (🩵 Cyan/Teal): Verified neighborhood residents.
+- `friend` (💜 Purple): Friends, guests, and visitors.
 - `delivery` (🟡 Amber): Delivery couriers (Flash, Kerry, Grab) or registered couriers.
+- `other` (⚪ Slate/Grey): General registered individuals and guests.
 - `stranger` (🔴 Red): Unidentified individuals triggering automatic security alerts.
 
 ---

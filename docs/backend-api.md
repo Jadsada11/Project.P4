@@ -74,9 +74,9 @@ backend/
 | :--- | :--- | :--- | :--- |
 | `id` | `INTEGER` | Primary Key, Auto Increment | รหัสบุคคล |
 | `name` | `VARCHAR` | Not Null | ชื่อ-นามสกุล บุคคล |
-| `category` | `VARCHAR` | Indexed, Not Null | หมวดหมู่: `household`, `delivery`, `stranger` |
-| `role` | `VARCHAR` | Nullable | บทบาท เช่น Family, Delivery, VIP |
-| `department` | `VARCHAR` | Nullable | แผนกหรือบริษัทขนส่ง (เช่น Flash, Kerry, Residence) |
+| `category` | `VARCHAR` | Indexed, Not Null | หมวดหมู่: `household`, `neighbor`, `friend`, `delivery`, `other`, `stranger` |
+| `role` | `VARCHAR` | Nullable | บทบาท เช่น Family, Neighbor, Friend, Delivery, Guest, Stranger |
+| `department` | `VARCHAR` | Nullable | แผนกหรือความสัมพันธ์ (เช่น ครอบครัว, เพื่อนบ้าน, เพื่อน, ขนส่ง) |
 | `notes` | `TEXT` | Nullable | หมายเหตุเพิ่มเติมและข้อมูลความปลอดภัย |
 | `photo_url` | `VARCHAR` | Nullable | ลิงก์รูปถ่ายโปรไฟล์หลัก |
 | `accuracy` | `FLOAT` | Default: `0.0` | ค่าความแม่นยำของใบหน้า (%) |
@@ -91,7 +91,7 @@ backend/
 | `id` | `INTEGER` | Primary Key, Auto Increment | รหัสประวัติการตรวจจับ |
 | `person_id` | `INTEGER` | Foreign Key (`persons.id`), Nullable | เชื่อมโยงกับบุคคลที่ระบุตัวตนได้ |
 | `person_name` | `VARCHAR` | Not Null | ชื่อบุคคลที่ตรวจพบ |
-| `category` | `VARCHAR` | Indexed, Not Null | `household`, `delivery`, หรือ `stranger` |
+| `category` | `VARCHAR` | Indexed, Not Null | `household`, `neighbor`, `friend`, `delivery`, `other`, หรือ `stranger` |
 | `confidence` | `FLOAT` | Not Null | ค่าความมั่นใจในการจำแนก (%) |
 | `bounding_box` | `TEXT` | Nullable | พิกัดกรอบ JSON `[x1, y1, x2, y2]` |
 | `snapshot_path`| `VARCHAR` | Nullable | พาธไฟล์ภาพ Snapshot ที่บันทึกไว้ |
@@ -106,7 +106,7 @@ backend/
 | `id` | `INTEGER` | Primary Key, Auto Increment | รหัสการแจ้งเตือน |
 | `title` | `VARCHAR` | Not Null | หัวข้อการแจ้งเตือน |
 | `description` | `TEXT` | Not Null | รายละเอียดเหตุการณ์ |
-| `category` | `VARCHAR` | Indexed, Not Null | `household`, `delivery`, หรือ `stranger` |
+| `category` | `VARCHAR` | Indexed, Not Null | `household`, `neighbor`, `friend`, `delivery`, `other`, หรือ `stranger` |
 | `severity` | `VARCHAR` | Not Null | ระดับความรุนแรง: `info`, `warning`, `critical` |
 | `location` | `VARCHAR` | Default: `'Main Entrance'` | ตำแหน่งที่เกิดเหตุ |
 | `detection_id`| `INTEGER` | Foreign Key (`detection_history.id`), Nullable | เชื่อมโยงกับประวัติการตรวจจับ |
@@ -216,13 +216,16 @@ Interactive Swagger UI: `http://localhost:8000/docs`
     "household_count": 8,
     "delivery_count": 4,
     "stranger_count": 3,
+    "neighbor_count": 2,
+    "friend_count": 1,
+    "other_count": 0,
     "alerts_count": 7
   }
   ```
 
 #### ดึงประวัติการตรวจจับ (Detection History List)
 - `GET /api/v1/detection/history`
-- Query Params: `category` (`household`, `delivery`, `stranger`, `ALL`), `limit` (int), `offset` (int)
+- Query Params: `category` (`household`, `neighbor`, `friend`, `delivery`, `other`, `stranger`, `ALL`), `limit` (int), `offset` (int)
 - Response `200 OK`: รายการประวัติเรียงจากล่าสุด
 
 #### ลบประวัติการตรวจจับเฉพาะรายการ (Single Delete with FK Safety)

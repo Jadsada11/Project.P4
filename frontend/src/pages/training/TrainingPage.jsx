@@ -38,7 +38,10 @@ export default function TrainingPage() {
   const roles = [
     { id: "ALL", label: "ทั้งหมด (ALL)" },
     { id: "household", label: "คนในบ้าน (Household)" },
+    { id: "neighbor", label: "เพื่อนบ้าน (Neighbor)" },
+    { id: "friend", label: "เพื่อน (Friend)" },
     { id: "delivery", label: "คนส่งของ (Delivery)" },
+    { id: "other", label: "อื่นๆ (Other)" },
     { id: "stranger", label: "คนแปลกหน้า (Stranger)" },
   ];
 
@@ -55,7 +58,19 @@ export default function TrainingPage() {
           name: p.name,
           category: p.category,
           role: p.category || p.role,
-          department: p.department || (p.category === "household" ? "คนในบ้าน" : p.category === "delivery" ? "พนักงานขนส่ง" : "ทั่วไป"),
+          department:
+            p.department ||
+            (p.category === "household"
+              ? "คนในบ้าน"
+              : p.category === "neighbor"
+              ? "เพื่อนบ้าน"
+              : p.category === "friend"
+              ? "เพื่อน/คนสนิท"
+              : p.category === "delivery"
+              ? "พนักงานขนส่ง"
+              : p.category === "other"
+              ? "ทั่วไป"
+              : "ทั่วไป"),
           imagesCount: p.images_count || 1,
           accuracy: p.accuracy || 98.4,
           notes: p.notes || "",
@@ -470,7 +485,15 @@ export default function TrainingPage() {
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                  <Badge variant={person.role}>{person.role}</Badge>
+                  <Badge variant={person.category || person.role}>
+                    {person.category === "household" ? "คนในบ้าน"
+                      : person.category === "neighbor" ? "เพื่อนบ้าน"
+                      : person.category === "friend" ? "เพื่อน"
+                      : person.category === "delivery" ? "คนส่งของ"
+                      : person.category === "other" ? "อื่นๆ"
+                      : person.category === "stranger" ? "คนแปลกหน้า"
+                      : person.role}
+                  </Badge>
                   <button
                     onClick={() => handleDeletePerson(person.id, person.name)}
                     className="opacity-0 group-hover:opacity-100 p-1 rounded-lg text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-all cursor-pointer"

@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 class PersonBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    category: str = Field("household", description="'household' (คนในบ้าน), 'delivery' (คนส่งของ), 'stranger' (คนแปลกหน้า)")
+    category: str = Field("household", description="'household' (คนในบ้าน), 'neighbor' (เพื่อนบ้าน), 'friend' (เพื่อน), 'delivery' (คนส่งของ), 'other' (อื่นๆ), 'stranger' (คนแปลกหน้า)")
     role: str = Field("Family", max_length=50)
     department: str = Field("", max_length=100)
     notes: str = Field("", max_length=500)

@@ -90,16 +90,22 @@ def classify_and_record(
         # If manually forced for testing / explicit mode
         if force_category:
             category = force_category
-            if force_category == "household" and household_members:
-                matched_person = household_members[0]
-                person_name = force_name or matched_person.name
-                role = matched_person.role
-            elif force_category == "delivery" and delivery_members:
-                matched_person = delivery_members[0]
+            matched_pool = [p for p in registered_persons if p.category == force_category]
+            if matched_pool:
+                matched_person = matched_pool[0]
                 person_name = force_name or matched_person.name
                 role = matched_person.role
             else:
-                person_name = force_name or "บุคคลแปลกหน้า (Stranger)"
+                cat_labels = {
+                    "household": "สมาชิกในบ้าน (Household)",
+                    "neighbor": "เพื่อนบ้าน (Neighbor)",
+                    "friend": "เพื่อน (Friend)",
+                    "delivery": "คนส่งของ (Delivery)",
+                    "other": "บุคคลที่บันทึกไว้ (Other)",
+                    "stranger": "บุคคลแปลกหน้า (Stranger)",
+                }
+                person_name = force_name or cat_labels.get(force_category, f"บุคคลหมวดหมู่ {force_category}")
+                role = force_category.capitalize()
         else:
             # 1. เปรียบเทียบ Deep Learning Face Embedding กับฐานข้อมูลบุคคลที่เทรนไว้
             is_face_crop = det.get("is_real_face", True) or det.get("class_name") == "face"
@@ -109,8 +115,9 @@ def classify_and_record(
                 if matched_pid:
                     matched_person = next((p for p in registered_persons if p.id == matched_pid), None)
                 category = face_match.get("category", "household")
-                person_name = face_match.get("name", "สมาชิกในบ้าน")
-                role = face_match.get("role", "Family" if category == "household" else "Delivery")
+                person_name = face_match.get("name", "บุคคลที่ลงทะเบียน")
+                default_role = "Family" if category == "household" else "Neighbor" if category == "neighbor" else "Friend" if category == "friend" else "Delivery" if category == "delivery" else "Other"
+                role = face_match.get("role") or (matched_person.role if matched_person else default_role)
                 confidence = round(max(confidence, match_score * 100), 1)
             else:
                 # 2. ตรวจสอบ Heuristic เครื่องแบบขนส่งพัสดุ โดยดูบริเวณเสื้อผ้าใต้ใบหน้า
@@ -204,6 +211,57 @@ def classify_and_record(
                 title=f"ตรวจพบสมาชิกในบ้าน: {person_name}",
                 description=f"AI ตรวจพบและจดจำใบหน้าของ {person_name} ({role}) เข้าสู่บริเวณ {location} อย่างปลอดภัย (ความแม่นยำ {confidence}%)",
                 category="household",
+                severity="info",
+                location=location,
+                detection_id=detection_record.id,
+                thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                is_read=False,
+                created_at=now,
+            )
+            db.add(alert)
+            detection_record.alert_triggered = True
+
+        elif category == "neighbor":
+            alert_created = True
+            alert_msg = f"ตรวจพบเพื่อนบ้าน: {person_name} บริเวณ {location}"
+            alert = Alert(
+                title=f"ตรวจพบเพื่อนบ้าน: {person_name}",
+                description=f"AI ตรวจพบและจดจำใบหน้าเพื่อนบ้าน ({person_name}) เข้าสู่บริเวณ {location} (ความแม่นยำ {confidence}%)",
+                category="neighbor",
+                severity="info",
+                location=location,
+                detection_id=detection_record.id,
+                thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                is_read=False,
+                created_at=now,
+            )
+            db.add(alert)
+            detection_record.alert_triggered = True
+
+        elif category == "friend":
+            alert_created = True
+            alert_msg = f"ตรวจพบเพื่อน/คนรู้จัก: {person_name} ถึงบริเวณ {location}"
+            alert = Alert(
+                title=f"ตรวจพบเพื่อน: {person_name}",
+                description=f"AI ตรวจพบและจดจำใบหน้าเพื่อนสนิท/ผู้มาเยือน ({person_name}) บริเวณ {location} (ความแม่นยำ {confidence}%)",
+                category="friend",
+                severity="info",
+                location=location,
+                detection_id=detection_record.id,
+                thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                is_read=False,
+                created_at=now,
+            )
+            db.add(alert)
+            detection_record.alert_triggered = True
+
+        elif category == "other":
+            alert_created = True
+            alert_msg = f"ตรวจพบบุคคลทั่วไป: {person_name} บริเวณ {location}"
+            alert = Alert(
+                title=f"ตรวจพบบุคคล (อื่นๆ): {person_name}",
+                description=f"AI ตรวจพบและจดจำใบหน้า {person_name} ({role}) บริเวณ {location} (ความแม่นยำ {confidence}%)",
+                category="other",
                 severity="info",
                 location=location,
                 detection_id=detection_record.id,

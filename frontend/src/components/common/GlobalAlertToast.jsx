@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { Bell, AlertTriangle, Package, CheckCircle2, X, ExternalLink, Sparkles } from "lucide-react";
+import { Bell, AlertTriangle, Package, CheckCircle2, X, ExternalLink, Sparkles, Users, Smile } from "lucide-react";
 import { useDetection } from "../../context/DetectionContext";
 
 export default function GlobalAlertToast() {
@@ -26,35 +26,65 @@ export default function GlobalAlertToast() {
     return null;
   }
 
-  const isStranger = alertNotification.isStranger || alertNotification.category === "stranger";
-  const isDelivery = alertNotification.category === "delivery";
+  const cat = alertNotification.category || "stranger";
+  const isStranger = alertNotification.isStranger || cat === "stranger";
+  const isDelivery = cat === "delivery";
+  const isNeighbor = cat === "neighbor";
+  const isFriend = cat === "friend";
+  const isOther = cat === "other";
+
+  const cardStyle = isStranger
+    ? "bg-[#fff3e0]/95 border-[#ffb74d] text-[#e65100] shadow-[#ffb74d]/20"
+    : isDelivery
+    ? "bg-[#fff8e1]/95 border-[#ffe082] text-[#f57f17] shadow-[#ffe082]/20"
+    : isNeighbor
+    ? "bg-[#e0f7fa]/95 border-[#80deea] text-[#00838f] shadow-[#80deea]/20"
+    : isFriend
+    ? "bg-[#f3e5f5]/95 border-[#ce93d8] text-[#7b1fa2] shadow-[#ce93d8]/20"
+    : isOther
+    ? "bg-[#f8fafc]/95 border-[#cbd5e1] text-[#475569] shadow-[#cbd5e1]/20"
+    : "bg-[#e8f5e9]/95 border-[#a5d6a7] text-[#2e7d32] shadow-[#a5d6a7]/20";
+
+  const iconBoxStyle = isStranger
+    ? "bg-[#ffe0b2] text-[#e65100]"
+    : isDelivery
+    ? "bg-[#ffecb3] text-[#f57f17]"
+    : isNeighbor
+    ? "bg-[#b2ebf2] text-[#00838f]"
+    : isFriend
+    ? "bg-[#e1bee7] text-[#7b1fa2]"
+    : isOther
+    ? "bg-[#e2e8f0] text-[#475569]"
+    : "bg-[#c8e6c9] text-[#2e7d32]";
+
+  const categoryBadgeLabel = isStranger
+    ? "AI Alert"
+    : isDelivery
+    ? "Delivery"
+    : isNeighbor
+    ? "Neighbor"
+    : isFriend
+    ? "Friend"
+    : isOther
+    ? "Other"
+    : "Household";
 
   return (
     <div className="fixed top-20 right-4 sm:right-6 z-50 max-w-md w-full animate-in fade-in slide-in-from-top-4 duration-300 pointer-events-auto">
-      <div
-        className={`p-4 rounded-2xl border shadow-xl backdrop-blur-md flex flex-col gap-3 transition-all ${
-          isStranger
-            ? "bg-[#fff3e0]/95 border-[#ffb74d] text-[#e65100] shadow-[#ffb74d]/20"
-            : isDelivery
-            ? "bg-[#e3f2fd]/95 border-[#90caf9] text-[#1565c0] shadow-[#90caf9]/20"
-            : "bg-[#e8f5e9]/95 border-[#a5d6a7] text-[#2e7d32] shadow-[#a5d6a7]/20"
-        }`}
-      >
+      <div className={`p-4 rounded-2xl border shadow-xl backdrop-blur-md flex flex-col gap-3 transition-all ${cardStyle}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
-            <div
-              className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                isStranger
-                  ? "bg-[#ffe0b2] text-[#e65100]"
-                  : isDelivery
-                  ? "bg-[#bbdefb] text-[#1565c0]"
-                  : "bg-[#c8e6c9] text-[#2e7d32]"
-              }`}
-            >
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${iconBoxStyle}`}>
               {isStranger ? (
                 <AlertTriangle className="w-5 h-5 animate-bounce" />
               ) : isDelivery ? (
                 <Package className="w-5 h-5" />
+              ) : isNeighbor ? (
+                <Users className="w-5 h-5" />
+              ) : isFriend ? (
+                <Smile className="w-5 h-5" />
+              ) : isOther ? (
+                <Sparkles className="w-5 h-5" />
               ) : (
                 <CheckCircle2 className="w-5 h-5" />
               )}
@@ -63,7 +93,7 @@ export default function GlobalAlertToast() {
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/80 border border-current/20">
-                  {isStranger ? "AI Alert" : isDelivery ? "Delivery" : "Household"}
+                  {categoryBadgeLabel}
                 </span>
                 <span className="text-[11px] opacity-75 font-mono">{alertNotification.time}</span>
               </div>

@@ -21,7 +21,7 @@ flowchart TD
     F -->|สกัดเวกเตอร์ 576-dim L2-Normalized| G["Cosine Similarity Matching Engine"]
     H[("face_embeddings.json\nฐานข้อมูลเวกเตอร์ที่เทรนไว้")] -->|เปรียบเทียบความคล้ายคลึง| G
     
-    G -->|Cosine Similarity >= 0.58| I["จดจำได้: คนในบ้าน Household / คนส่งของ Delivery"]
+    G -->|Cosine Similarity >= 0.58| I["จดจำได้: คนในบ้าน Household / เพื่อนบ้าน Neighbor / เพื่อน Friend / ขนส่ง Delivery / อื่นๆ Other"]
     G -->|Cosine Similarity < 0.58| J{"ตรวจสีเครื่องแบบเสื้อผ้าใต้คาง?"}
     J -->|พบชุด Flash / Kerry / Grab| K["คนส่งของ Delivery"]
     J -->|ไม่ตรงเงื่อนไข| L["คนแปลกหน้า Stranger"]
@@ -112,7 +112,7 @@ backend/data/
 1. เข้าหน้าจอ `/add-person` และอัปโหลดชุดรูปภาพใบหน้า (ไฟล์ JPG, PNG, WEBP ผ่าน Drag & Drop หรือ File Picker)
 2. อัปโหลดภาพ 3-5 ภาพขึ้นไปในมุมมองและสภาพแสงที่หลากหลาย (หน้าตรง, เอียงข้างเล็กน้อย, สภาพแสงจริง)
 3. เลือกภาพโปรไฟล์หลัก (รูปที่มีไอคอนดาว ⭐)
-4. กรอกชื่อและเลือกหมวดหมู่ (`household`, `delivery`, หรือ `stranger`)
+4. กรอกชื่อและเลือกหมวดหมู่ (`household`, `neighbor`, `friend`, `delivery`, `other`, หรือ `stranger`)
 5. กดปุ่ม **"บันทึกและเทรนใบหน้าบุคคล"**
 6. Backend จะสกัดเวกเตอร์ บันทึกรูปลงดิสก์ และอัปเดตโมเดลทันทีโดยไม่ต้อง Restart Server
 

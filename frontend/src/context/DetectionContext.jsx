@@ -139,6 +139,9 @@ export function DetectionProvider({ children }) {
     household_count: 0,
     delivery_count: 0,
     stranger_count: 0,
+    neighbor_count: 0,
+    friend_count: 0,
+    other_count: 0,
     alerts_count: 0,
   });
 
@@ -213,8 +216,27 @@ export function DetectionProvider({ children }) {
         gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
         osc.start(now);
         osc.stop(now + 0.4);
+      } else if (category === "friend") {
+        // Upbeat pleasant 3-tone chime for friends
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(587.33, now);
+        osc.frequency.setValueAtTime(739.99, now + 0.1);
+        osc.frequency.setValueAtTime(880, now + 0.2);
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
+        osc.start(now);
+        osc.stop(now + 0.45);
+      } else if (category === "neighbor") {
+        // Harmonious dual chime for neighbors
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(523.25, now);
+        osc.frequency.setValueAtTime(659.25, now + 0.12);
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+        osc.start(now);
+        osc.stop(now + 0.4);
       } else {
-        // Gentle pleasant chime for household
+        // Gentle pleasant chime for household & other
         osc.type = "triangle";
         osc.frequency.setValueAtTime(523.25, now);
         osc.frequency.setValueAtTime(659.25, now + 0.12);
@@ -310,29 +332,46 @@ export function DetectionProvider({ children }) {
       if (res && res.detections && res.detections.length > 0) {
         setActiveDetections(res.detections);
         const hasStranger = res.detections.some((d) => d.category === "stranger");
-        const hasDelivery = res.detections.some((d) => d.category === "delivery");
         const primary = res.detections[0];
 
-        const alertCategory = hasStranger ? "stranger" : hasDelivery ? "delivery" : "household";
+        const alertCategory = primary.category || (hasStranger ? "stranger" : "household");
         playAlertChime(alertCategory);
+
+        let alertType = "success";
+        let alertTitle = `🟢 ยืนยันตัวตน: ${primary.person_name}`;
+        let alertMessage = `ตรวจพบและจดจำใบหน้าของสมาชิกในบ้าน (${primary.confidence}%) อย่างปลอดภัย`;
+
+        if (alertCategory === "stranger" || hasStranger) {
+          alertType = "warning";
+          alertTitle = `⚠️ ตรวจพบคนแปลกหน้า: ${primary.person_name}`;
+          alertMessage = `ระบบตรวจจับใบหน้า (${primary.confidence}%) ไม่ตรงกับฐานข้อมูล และได้บันทึกแจ้งเตือนความปลอดภัย`;
+        } else if (alertCategory === "delivery") {
+          alertType = "info";
+          alertTitle = `📦 ตรวจพบคนส่งของ: ${primary.person_name}`;
+          alertMessage = `AI ตรวจพบพนักงานขนส่ง/ไรเดอร์ (${primary.confidence}%) มาถึงบริเวณหน้าบ้าน`;
+        } else if (alertCategory === "neighbor") {
+          alertType = "info";
+          alertTitle = `🩵 ตรวจพบเพื่อนบ้าน: ${primary.person_name}`;
+          alertMessage = `AI ตรวจพบเพื่อนบ้าน (${primary.person_name}${primary.role ? ` • ${primary.role}` : ""}) เข้าสู่บริเวณหน้าบ้าน`;
+        } else if (alertCategory === "friend") {
+          alertType = "info";
+          alertTitle = `💜 ตรวจพบเพื่อน: ${primary.person_name}`;
+          alertMessage = `AI ตรวจพบเพื่อนสนิท/ผู้มาเยือน (${primary.person_name}${primary.role ? ` • ${primary.role}` : ""}) มาถึงบริเวณหน้าบ้าน`;
+        } else if (alertCategory === "other") {
+          alertType = "info";
+          alertTitle = `⚪ ตรวจพบบุคคลที่บันทึกไว้: ${primary.person_name}`;
+          alertMessage = `AI ตรวจพบบุคคลทั่วไป (${primary.person_name}${primary.role ? ` • ${primary.role}` : ""}) บริเวณหน้าบ้าน`;
+        }
 
         const newAlert = {
           id: `alert-${Date.now()}`,
           category: alertCategory,
-          type: hasStranger ? "warning" : hasDelivery ? "info" : "success",
-          title: hasStranger
-            ? `⚠️ ตรวจพบคนแปลกหน้า: ${primary.person_name}`
-            : hasDelivery
-            ? `📦 ตรวจพบคนส่งของ: ${primary.person_name}`
-            : `🟢 ยืนยันตัวตน: ${primary.person_name}`,
-          message: hasStranger
-            ? `ระบบตรวจจับใบหน้า (${primary.confidence}%) ไม่ตรงกับฐานข้อมูล และได้ส่งแจ้งเตือนความปลอดภัยแล้ว`
-            : hasDelivery
-            ? `ตรวจพบพนักงานขนส่ง/ไรเดอร์ (${primary.confidence}%) มาถึงบริเวณหน้าบ้าน`
-            : `ตรวจพบและจดจำใบหน้าของสมาชิกในบ้าน (${primary.confidence}%) อย่างปลอดภัย`,
+          type: alertType,
+          title: alertTitle,
+          message: alertMessage,
           personName: primary.person_name,
           confidence: primary.confidence,
-          isStranger: hasStranger,
+          isStranger: alertCategory === "stranger" || hasStranger,
           time: new Date().toLocaleTimeString("th-TH"),
           timestamp: Date.now(),
         };

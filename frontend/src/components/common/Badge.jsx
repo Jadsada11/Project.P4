@@ -13,9 +13,12 @@ export default function Badge({ children, variant = "default", className = "", s
     unknown: "bg-[#ffebee] text-[#c62828] border border-[#ffcdd2] font-semibold",
     threat: "bg-[#c62828] text-white border border-[#b71c1c] font-semibold animate-pulse",
 
-    // The 3 Core Categories
+    // Core Categories
     household: "bg-[#e8f5e9] text-[#2e7d32] border border-[#a5d6a7] font-bold",
+    neighbor: "bg-[#e0f7fa] text-[#00838f] border border-[#80deea] font-bold",
+    friend: "bg-[#f3e5f5] text-[#7b1fa2] border border-[#ce93d8] font-bold",
     delivery: "bg-[#fff3e0] text-[#e65100] border border-[#ffe0b2] font-bold",
+    other: "bg-[#f1f5f9] text-[#475569] border border-[#cbd5e1] font-bold",
     stranger: "bg-[#ffebee] text-[#c62828] border border-[#ffcdd2] font-bold",
 
     // Roles
