@@ -291,11 +291,13 @@ Interactive Swagger UI: `http://localhost:8000/docs`
   }
   ```
 
-#### ระบบแจ้งเตือนทางอีเมลอัตโนมัติ (Automated Email Alerts)
-- **ทริกเกอร์:** ทำงานอัตโนมัติเมื่อ `person_classifier.py` ตรวจพบ `category == "delivery"` (คนมาส่งของ) หรือ `category == "stranger"` (คนแปลกหน้า)
+#### ระบบแจ้งเตือนทางอีเมลอัตโนมัติ (Automated Email Alerts) & การหน่วงเวลาแจ้งเตือน (5-Minute Cooldown)
+- **ทริกเกอร์:** ทำงานอัตโนมัติเมื่อ `person_classifier.py` ตรวจพบเหตุการณ์ความปลอดภัย (`delivery`, `stranger`, `household`, `neighbor`, `friend`, `other`)
 - **สถาปัตยกรรม:** ส่งผ่าน Non-blocking Background Thread (`email_service.py`) เพื่อไม่ให้หน่วงลูป YOLO Inference
 - **การแนบรูปภาพ:** แนบภาพถ่ายสแนปช็อตแบบ Inline Attachment (CID Image) เพื่อให้เปิดดูภาพใบหน้า/คนส่งของได้ทันทีจากแอปอีเมลบนมือถือ
-- **Anti-Spam Cooldown:** มีระบบ Cooldown 60 วินาทีป้องกันการส่งอีเมลซ้ำซ้อนจากเฟรมวิดีโอต่อเนื่อง
+- **Anti-Spam Alert Cooldown (5 นาที / 300 วินาที):**
+  - **บันทึก Snapshot ทุก 5 วินาที:** ระบบยังคงตรวจจับเฟรมและบันทึกประวัติการตรวจจับ (`detection_history`) พร้อมรูปภาพสแนปช็อต `.jpg` ในโฟลเดอร์ `/data/snapshots/` ทุก 5 วินาทีอย่างครบถ้วน
+  - **จำกัดรอบการสร้าง Alert และส่งอีเมล:** จะบันทึกเรคคอร์ดลงตาราง `alerts` และส่งอีเมลแจ้งเตือนซ้ำสำหรับบุคคล/หมวดหมู่เดิม **ทุกๆ 5 นาที (300 วินาที)** เท่านั้น เพื่อป้องกันการรบกวน (Spam) ขณะบุคคลยืนอยู่หน้ากล้องอย่างต่อเนื่อง
 
 ---
 

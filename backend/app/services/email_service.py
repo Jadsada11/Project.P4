@@ -300,16 +300,16 @@ def trigger_email_alert_async(
     if category.lower() not in [c.lower() for c in alert_categories]:
         return
 
-    # Cooldown Check (ป้องกันสแปมอีเมลซ้ำๆ)
+    # Cooldown Check (ป้องกันสแปมอีเมลซ้ำๆ ส่งสูงสุดทุก 5 นาที / 300 วิ)
     now = time.time()
-    cooldown_key = f"{category.lower()}_{person_name}"
+    cooldown_key = "stranger" if category.lower() == "stranger" else f"{category.lower()}_{person_name}"
     with _cooldown_lock:
         last_sent = _last_sent_timestamps.get(cooldown_key, 0)
         # ตรวจสอบ Cooldown รวมระดับหมวดหมู่ด้วยเพื่อความปลอดภัย
         cat_last_sent = _last_sent_timestamps.get(category.lower(), 0)
         cooldown_sec = settings.EMAIL_ALERT_COOLDOWN_SECONDS
 
-        if (now - last_sent < cooldown_sec) or (now - cat_last_sent < 15):
+        if (now - last_sent < cooldown_sec) or (now - cat_last_sent < min(cooldown_sec, 60)):
             logger.debug(f"[Email Alert Cooldown] Skipped email for {cooldown_key} (Sent {int(now - last_sent)}s ago)")
             return
 

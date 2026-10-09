@@ -1,20 +1,19 @@
 {
   "status": "ready",
   "model_name": "MobileNetV3 + Cosine Metric Learning",
-  "last_trained": "2026-10-09T12:37:13.148588+00:00",
-  "total_persons": 2,
-  "total_samples": 17,
-  "average_accuracy": 99.5,
-  "loss": 0.008,
+  "last_trained": "2026-10-09T13:12:47.085473+00:00",
+  "total_persons": 1,
+  "total_samples": 12,
+  "average_accuracy": 97.3,
+  "loss": 0.027,
   "inference_speed_ms": 13.8,
-  "elapsed_ms": 2222,
+  "elapsed_ms": 1662,
   "logs": [
-    "[19:37:10] [TRAINER] Starting Full Face Metric Retraining Pipeline...",
-    "[19:37:10] [MODEL] Initializing MobileNetV3-Small (576-dim L2 Metric Extractor)...",
-    "[19:37:10] [DATABASE] Found 2 active identity profiles in SQLite.",
-    "[19:37:12] [TRAINED] #2 m (stranger): 10 images (20 augmented) | Intra-consistency: 99.5%",
-    "[19:37:13] [TRAINED] #3 npm (friend): 7 images (14 augmented) | Intra-consistency: 99.5%",
-    "[19:37:13] [CENTROID] Normalized 2 person identity vectors into L2 space.",
-    "[19:37:13] [COMPLETE] Retraining finished in 2222ms. Overall Accuracy: 99.5%."
+    "[20:12:45] [TRAINER] Starting Full Face Metric Retraining Pipeline...",
+    "[20:12:45] [MODEL] Initializing MobileNetV3-Small (576-dim L2 Metric Extractor)...",
+    "[20:12:45] [DATABASE] Found 1 active identity profiles in SQLite.",
+    "[20:12:47] [TRAINED] #2 แง้นๆ (other): 12 images (24 augmented) | Intra-consistency: 97.3%",
+    "[20:12:47] [CENTROID] Normalized 1 person identity vectors into L2 space.",
+    "[20:12:47] [COMPLETE] Retraining finished in 1662ms. Overall Accuracy: 97.3%."
   ]
 }

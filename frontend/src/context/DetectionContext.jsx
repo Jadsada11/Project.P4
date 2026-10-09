@@ -97,7 +97,7 @@ export function DetectionProvider({ children }) {
     const saved = localStorage.getItem("esp32_cam_auto_detect");
     return saved !== null ? saved === "true" : true;
   });
-  const [autoDetectInterval, setAutoDetectInterval] = useState(3000);
+  const [autoDetectInterval, setAutoDetectInterval] = useState(5000); // 5 วินาที per snapshot
   const [isSoundEnabled, setIsSoundEnabled] = useState(() => {
     const saved = localStorage.getItem("esp32_cam_sound_enabled");
     return saved !== null ? saved === "true" : true;
@@ -330,57 +330,63 @@ export function DetectionProvider({ children }) {
       }
 
       if (res && res.detections && res.detections.length > 0) {
+        // Real-time bounding boxes update on every 5s snapshot
         setActiveDetections(res.detections);
         const hasStranger = res.detections.some((d) => d.category === "stranger");
         const primary = res.detections[0];
-
         const alertCategory = primary.category || (hasStranger ? "stranger" : "household");
-        playAlertChime(alertCategory);
 
-        let alertType = "success";
-        let alertTitle = `🟢 ยืนยันตัวตน: ${primary.person_name}`;
-        let alertMessage = `ตรวจพบและจดจำใบหน้าของสมาชิกในบ้าน (${primary.confidence}%) อย่างปลอดภัย`;
+        // แจ้งเตือน (เสียง / Toast / Desktop Push) เฉพาะเมื่อมีการสร้าง Alert จาก Backend (รอบ 5 นาที)
+        const isAlertTriggered = res.detections.some((d) => d.alert_created === true);
 
-        if (alertCategory === "stranger" || hasStranger) {
-          alertType = "warning";
-          alertTitle = `⚠️ ตรวจพบคนแปลกหน้า: ${primary.person_name}`;
-          alertMessage = `ระบบตรวจจับใบหน้า (${primary.confidence}%) ไม่ตรงกับฐานข้อมูล และได้บันทึกแจ้งเตือนความปลอดภัย`;
-        } else if (alertCategory === "delivery") {
-          alertType = "info";
-          alertTitle = `📦 ตรวจพบคนส่งของ: ${primary.person_name}`;
-          alertMessage = `AI ตรวจพบพนักงานขนส่ง/ไรเดอร์ (${primary.confidence}%) มาถึงบริเวณหน้าบ้าน`;
-        } else if (alertCategory === "neighbor") {
-          alertType = "info";
-          alertTitle = `🩵 ตรวจพบเพื่อนบ้าน: ${primary.person_name}`;
-          alertMessage = `AI ตรวจพบเพื่อนบ้าน (${primary.person_name}${primary.role ? ` • ${primary.role}` : ""}) เข้าสู่บริเวณหน้าบ้าน`;
-        } else if (alertCategory === "friend") {
-          alertType = "info";
-          alertTitle = `💜 ตรวจพบเพื่อน: ${primary.person_name}`;
-          alertMessage = `AI ตรวจพบเพื่อนสนิท/ผู้มาเยือน (${primary.person_name}${primary.role ? ` • ${primary.role}` : ""}) มาถึงบริเวณหน้าบ้าน`;
-        } else if (alertCategory === "other") {
-          alertType = "info";
-          alertTitle = `⚪ ตรวจพบบุคคลที่บันทึกไว้: ${primary.person_name}`;
-          alertMessage = `AI ตรวจพบบุคคลทั่วไป (${primary.person_name}${primary.role ? ` • ${primary.role}` : ""}) บริเวณหน้าบ้าน`;
+        if (isAlertTriggered) {
+          playAlertChime(alertCategory);
+
+          let alertType = "success";
+          let alertTitle = `🟢 ยืนยันตัวตน: ${primary.person_name}`;
+          let alertMessage = `ตรวจพบและจดจำใบหน้าของสมาชิกในบ้าน (${primary.confidence}%) อย่างปลอดภัย`;
+
+          if (alertCategory === "stranger" || hasStranger) {
+            alertType = "warning";
+            alertTitle = `⚠️ ตรวจพบคนแปลกหน้า: ${primary.person_name}`;
+            alertMessage = `ระบบตรวจจับใบหน้า (${primary.confidence}%) ไม่ตรงกับฐานข้อมูล และได้บันทึกแจ้งเตือนความปลอดภัย`;
+          } else if (alertCategory === "delivery") {
+            alertType = "info";
+            alertTitle = `📦 ตรวจพบคนส่งของ: ${primary.person_name}`;
+            alertMessage = `AI ตรวจพบพนักงานขนส่ง/ไรเดอร์ (${primary.confidence}%) มาถึงบริเวณหน้าบ้าน`;
+          } else if (alertCategory === "neighbor") {
+            alertType = "info";
+            alertTitle = `🩵 ตรวจพบเพื่อนบ้าน: ${primary.person_name}`;
+            alertMessage = `AI ตรวจพบเพื่อนบ้าน (${primary.person_name}${primary.role ? ` • ${primary.role}` : ""}) เข้าสู่บริเวณหน้าบ้าน`;
+          } else if (alertCategory === "friend") {
+            alertType = "info";
+            alertTitle = `💜 ตรวจพบเพื่อน: ${primary.person_name}`;
+            alertMessage = `AI ตรวจพบเพื่อนสนิท/ผู้มาเยือน (${primary.person_name}${primary.role ? ` • ${primary.role}` : ""}) มาถึงบริเวณหน้าบ้าน`;
+          } else if (alertCategory === "other") {
+            alertType = "info";
+            alertTitle = `⚪ ตรวจพบบุคคลที่บันทึกไว้: ${primary.person_name}`;
+            alertMessage = `AI ตรวจพบบุคคลทั่วไป (${primary.person_name}${primary.role ? ` • ${primary.role}` : ""}) บริเวณหน้าบ้าน`;
+          }
+
+          const newAlert = {
+            id: `alert-${Date.now()}`,
+            category: alertCategory,
+            type: alertType,
+            title: alertTitle,
+            message: alertMessage,
+            personName: primary.person_name,
+            confidence: primary.confidence,
+            isStranger: alertCategory === "stranger" || hasStranger,
+            time: new Date().toLocaleTimeString("th-TH"),
+            timestamp: Date.now(),
+          };
+
+          setAlertNotification(newAlert);
+          sendDesktopNotification(newAlert.title, newAlert.message);
+
+          // Real-time Badge Sync across entire app
+          window.dispatchEvent(new CustomEvent("vigil-alerts-updated"));
         }
-
-        const newAlert = {
-          id: `alert-${Date.now()}`,
-          category: alertCategory,
-          type: alertType,
-          title: alertTitle,
-          message: alertMessage,
-          personName: primary.person_name,
-          confidence: primary.confidence,
-          isStranger: alertCategory === "stranger" || hasStranger,
-          time: new Date().toLocaleTimeString("th-TH"),
-          timestamp: Date.now(),
-        };
-
-        setAlertNotification(newAlert);
-        sendDesktopNotification(newAlert.title, newAlert.message);
-
-        // Real-time Badge Sync across entire app
-        window.dispatchEvent(new CustomEvent("vigil-alerts-updated"));
       } else if (res && res.detections && res.detections.length === 0) {
         setActiveDetections([]);
       }

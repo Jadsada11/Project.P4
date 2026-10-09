@@ -118,9 +118,12 @@ The camera surveillance and AI face recognition pipeline operates continuously 2
   - `DetectionProvider` maintains a hidden stream element (`<img id="vigil-persistent-stream-img" ... />`) in the DOM at all times.
   - When outside `/detection` (where the main `#esp32-stream-img` is unmounted), the background detection loop seamlessly grabs frames from `#vigil-persistent-stream-img` using HTML5 Canvas and calls `POST /api/v1/detection/detect-image`.
   - If canvas frame grabbing is unavailable, it gracefully falls back to `POST /api/v1/detection/detect-esp32` (FastAPI backend proxy grab).
+- **Snapshot Frequency vs. Alert Cooldown (5s Snapshot / 5m Alert):**
+  - **Snapshot ทุก 5 วินาที:** ระบบจับภาพและวิเคราะห์ด้วย YOLO + MobileNetV3 พร้อมบันทึกภาพลง `/data/snapshots/` และประวัติลง `detection_history` ทุกๆ 5 วินาทีอย่างต่อเนื่อง
+  - **แจ้งเตือนทุก 5 นาที (300 วินาที):** บันทึกลงตาราง `alerts`, ส่งอีเมล (Gmail SMTP), ส่งเสียงเตือน (Chime) และแสดง Toast/Push Notification เฉพาะเมื่อพ้นรอบ Cooldown 5 นาที เพื่อป้องกันการแจ้งเตือนรบกวนต่อเนื่อง
 - **Dual-Trigger Instant Notification System**:
-  1. **Direct Detection Trigger**: As soon as `runDetection()` receives a positive identification (`stranger` or `delivery`), it immediately invokes `playAlertChime()` and sets `alertNotification` state.
-  2. **SQLite Alert Poller Trigger (`syncUnreadAlerts`)**: Every 4 seconds, `DetectionContext` queries `GET /api/v1/alerts?unread_only=true&limit=1`. If a new alert record is created in SQLite (via local detection, backend workers, or proxy), it immediately sounds the alarm, triggers `GlobalAlertToast`, and dispatches `vigil-alerts-updated`.
+  1. **Direct Detection Trigger**: เมื่อ `runDetection()` ได้รับผลการตรวจจับที่ผ่านเงื่อนไขการสร้างแจ้งเตือนรอบ 5 นาที (`alert_created === true`) จะเรียก `playAlertChime()` และเปิด `alertNotification`
+  2. **SQLite Alert Poller Trigger (`syncUnreadAlerts`)**: ทุก 4 วินาที `DetectionContext` จะดึง `GET /api/v1/alerts?unread_only=true&limit=1` เมื่อมี Alert ใหม่ที่ถูกสร้างขึ้นใน SQLite จะส่งเสียงเตือนและแสดงผลทันที
 - **Audio Autoplay & Desktop Notification Compliance**:
   - `playAlertChime()` automatically calls `ctx.resume()` if the browser's `AudioContext` is in a `"suspended"` state.
   - Generates HTML5 Web Desktop Notifications (`window.Notification`) when permission is granted.

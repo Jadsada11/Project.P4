@@ -699,7 +699,7 @@ export default function DetectionPage() {
                 >
                   <span className={`w-2 h-2 rounded-full ${isAutoDetect ? "bg-[#2e7d32] animate-ping" : "bg-neutral-400"}`} />
                   <Zap className="w-3.5 h-3.5" />
-                  <span>Auto AI: {isAutoDetect ? "ON (สด)" : "OFF"}</span>
+                  <span>Auto AI: {isAutoDetect ? "ON (5s)" : "OFF"}</span>
                 </button>
 
                 {/* Sound Alert Toggle */}
@@ -996,14 +996,14 @@ export default function DetectionPage() {
               {/* HUD Overlay - Top Right Status */}
               <div className="absolute top-4 right-4 bg-black/65 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 text-white text-[11px] font-mono z-10 flex items-center gap-2">
                 <span>MODEL:</span>
-                <span className="text-[#f5c9a8] font-bold">YOLOv8 + 3-Class AI</span>
+                <span className="text-[#f5c9a8] font-bold">YOLOv8 + 6-Class AI</span>
               </div>
 
               {/* LIVE STREAM AUTO DETECT ACTIVE PILL */}
               {isAutoDetect && (
                 <div className="absolute top-4 inset-x-0 mx-auto w-max bg-black/80 backdrop-blur-md px-3.5 py-1 rounded-full border border-[#4ade80]/40 text-white text-[11px] font-bold flex items-center gap-2 z-10 shadow-lg animate-in fade-in">
                   <span className="w-2 h-2 rounded-full bg-[#4ade80] animate-pulse" />
-                  <span>AI LIVE STREAM DETECTION ACTIVE</span>
+                  <span>AI AUTO SNAPSHOT (5s)</span>
                   {isDetecting && <RefreshCw className="w-3 h-3 animate-spin text-[#f5c9a8]" />}
                 </div>
               )}

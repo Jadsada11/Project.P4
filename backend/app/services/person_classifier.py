@@ -3,12 +3,14 @@ import json
 import time
 import uuid
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 import numpy as np
 from PIL import Image
 
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.models.person import Person
 from app.models.detection import DetectionHistory
 from app.models.alert import Alert
@@ -16,6 +18,38 @@ from app.services.face_embedding_service import match_face_embedding
 from app.services.email_service import trigger_email_alert_async
 
 logger = logging.getLogger("person_classifier")
+
+# 5-minute alert cooldown tracker (300 seconds)
+_alert_cooldowns: Dict[str, float] = {}
+_cooldown_lock = threading.Lock()
+
+
+def should_trigger_alert(category: str, person_name: str, person_id: Optional[int] = None) -> bool:
+    """
+    Check if an alert should be created based on ALERT_COOLDOWN_SECONDS (default 300s = 5 minutes).
+    Throttles alert creation per person/category so alerts are not spammed every 5s snapshot.
+    """
+    cooldown = getattr(settings, "ALERT_COOLDOWN_SECONDS", 300)
+    now_ts = time.time()
+
+    # For strangers, use category keying to prevent transient IDs/names from bypassing cooldown
+    if category == "stranger":
+        key = "stranger"
+    elif person_id:
+        key = f"{category}_{person_id}"
+    else:
+        key = f"{category}_{person_name.strip().lower()}"
+
+    with _cooldown_lock:
+        last_alert_time = _alert_cooldowns.get(key, 0.0)
+        if now_ts - last_alert_time >= cooldown:
+            _alert_cooldowns[key] = now_ts
+            return True
+        logger.info(
+            f"Alert cooldown active for {key}: {int(cooldown - (now_ts - last_alert_time))}s remaining"
+        )
+        return False
+
 
 SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "snapshots")
 os.makedirs(SNAPSHOT_DIR, exist_ok=True)
@@ -169,111 +203,113 @@ def classify_and_record(
         db.add(detection_record)
         db.flush()
 
-        # 2. ตรวจสอบการสร้างการแจ้งเตือน (Alerts) ส่งไปยังหน้าแจ้งเตือน
-        if category == "stranger":
-            alert_created = True
-            alert_msg = f"ตรวจพบคนแปลกหน้า! บริเวณ {location}"
-            alert = Alert(
-                title=f"ตรวจพบคนแปลกหน้าบริเวณ {location}!",
-                description=f"ระบบตรวจพบบุคคลแปลกหน้า (ความมั่นใจ {confidence}%) ไม่ตรงกับฐานข้อมูลใบหน้าที่เทรนไว้ บริเวณ {location}",
-                category="stranger",
-                severity="warning",
-                location=location,
-                detection_id=detection_record.id,
-                thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
-                is_read=False,
-                created_at=now,
-            )
-            db.add(alert)
-            detection_record.alert_triggered = True
+        # 2. ตรวจสอบการสร้างการแจ้งเตือน (Alerts) พร้อมระบบ Cooldown 5 นาที (300 วินาที)
+        can_alert = should_trigger_alert(category, person_name, matched_person.id if matched_person else None)
 
-        elif category == "delivery":
-            alert_created = True
-            alert_msg = f"มีพัสดุมาส่ง: {person_name} บริเวณ {location}"
-            alert = Alert(
-                title=f"ตรวจพบคนส่งของ: {person_name}",
-                description=f"AI ตรวจพบเจ้าหน้าที่ขนส่งพัสดุ/ไรเดอร์ ({person_name}) มาถึงบริเวณ {location} (ความมั่นใจ {confidence}%)",
-                category="delivery",
-                severity="info",
-                location=location,
-                detection_id=detection_record.id,
-                thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
-                is_read=False,
-                created_at=now,
-            )
-            db.add(alert)
-            detection_record.alert_triggered = True
+        if can_alert:
+            if category == "stranger":
+                alert_created = True
+                alert_msg = f"ตรวจพบคนแปลกหน้า! บริเวณ {location}"
+                alert = Alert(
+                    title=f"ตรวจพบคนแปลกหน้าบริเวณ {location}!",
+                    description=f"ระบบตรวจพบบุคคลแปลกหน้า (ความมั่นใจ {confidence}%) ไม่ตรงกับฐานข้อมูลใบหน้าที่เทรนไว้ บริเวณ {location}",
+                    category="stranger",
+                    severity="warning",
+                    location=location,
+                    detection_id=detection_record.id,
+                    thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                    is_read=False,
+                    created_at=now,
+                )
+                db.add(alert)
+                detection_record.alert_triggered = True
 
-        elif category == "household":
-            alert_created = True
-            alert_msg = f"ตรวจพบสมาชิกในบ้าน: {person_name} ถึงบริเวณ {location}"
-            alert = Alert(
-                title=f"ตรวจพบสมาชิกในบ้าน: {person_name}",
-                description=f"AI ตรวจพบและจดจำใบหน้าของ {person_name} ({role}) เข้าสู่บริเวณ {location} อย่างปลอดภัย (ความแม่นยำ {confidence}%)",
-                category="household",
-                severity="info",
-                location=location,
-                detection_id=detection_record.id,
-                thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
-                is_read=False,
-                created_at=now,
-            )
-            db.add(alert)
-            detection_record.alert_triggered = True
+            elif category == "delivery":
+                alert_created = True
+                alert_msg = f"มีพัสดุมาส่ง: {person_name} บริเวณ {location}"
+                alert = Alert(
+                    title=f"ตรวจพบคนส่งของ: {person_name}",
+                    description=f"AI ตรวจพบเจ้าหน้าที่ขนส่งพัสดุ/ไรเดอร์ ({person_name}) มาถึงบริเวณ {location} (ความมั่นใจ {confidence}%)",
+                    category="delivery",
+                    severity="info",
+                    location=location,
+                    detection_id=detection_record.id,
+                    thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                    is_read=False,
+                    created_at=now,
+                )
+                db.add(alert)
+                detection_record.alert_triggered = True
 
-        elif category == "neighbor":
-            alert_created = True
-            alert_msg = f"ตรวจพบเพื่อนบ้าน: {person_name} บริเวณ {location}"
-            alert = Alert(
-                title=f"ตรวจพบเพื่อนบ้าน: {person_name}",
-                description=f"AI ตรวจพบและจดจำใบหน้าเพื่อนบ้าน ({person_name}) เข้าสู่บริเวณ {location} (ความแม่นยำ {confidence}%)",
-                category="neighbor",
-                severity="info",
-                location=location,
-                detection_id=detection_record.id,
-                thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
-                is_read=False,
-                created_at=now,
-            )
-            db.add(alert)
-            detection_record.alert_triggered = True
+            elif category == "household":
+                alert_created = True
+                alert_msg = f"ตรวจพบสมาชิกในบ้าน: {person_name} ถึงบริเวณ {location}"
+                alert = Alert(
+                    title=f"ตรวจพบสมาชิกในบ้าน: {person_name}",
+                    description=f"AI ตรวจพบและจดจำใบหน้าของ {person_name} ({role}) เข้าสู่บริเวณ {location} อย่างปลอดภัย (ความแม่นยำ {confidence}%)",
+                    category="household",
+                    severity="info",
+                    location=location,
+                    detection_id=detection_record.id,
+                    thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                    is_read=False,
+                    created_at=now,
+                )
+                db.add(alert)
+                detection_record.alert_triggered = True
 
-        elif category == "friend":
-            alert_created = True
-            alert_msg = f"ตรวจพบเพื่อน/คนรู้จัก: {person_name} ถึงบริเวณ {location}"
-            alert = Alert(
-                title=f"ตรวจพบเพื่อน: {person_name}",
-                description=f"AI ตรวจพบและจดจำใบหน้าเพื่อนสนิท/ผู้มาเยือน ({person_name}) บริเวณ {location} (ความแม่นยำ {confidence}%)",
-                category="friend",
-                severity="info",
-                location=location,
-                detection_id=detection_record.id,
-                thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
-                is_read=False,
-                created_at=now,
-            )
-            db.add(alert)
-            detection_record.alert_triggered = True
+            elif category == "neighbor":
+                alert_created = True
+                alert_msg = f"ตรวจพบเพื่อนบ้าน: {person_name} บริเวณ {location}"
+                alert = Alert(
+                    title=f"ตรวจพบเพื่อนบ้าน: {person_name}",
+                    description=f"AI ตรวจพบและจดจำใบหน้าเพื่อนบ้าน ({person_name}) เข้าสู่บริเวณ {location} (ความแม่นยำ {confidence}%)",
+                    category="neighbor",
+                    severity="info",
+                    location=location,
+                    detection_id=detection_record.id,
+                    thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                    is_read=False,
+                    created_at=now,
+                )
+                db.add(alert)
+                detection_record.alert_triggered = True
 
-        elif category == "other":
-            alert_created = True
-            alert_msg = f"ตรวจพบบุคคลทั่วไป: {person_name} บริเวณ {location}"
-            alert = Alert(
-                title=f"ตรวจพบบุคคล (อื่นๆ): {person_name}",
-                description=f"AI ตรวจพบและจดจำใบหน้า {person_name} ({role}) บริเวณ {location} (ความแม่นยำ {confidence}%)",
-                category="other",
-                severity="info",
-                location=location,
-                detection_id=detection_record.id,
-                thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
-                is_read=False,
-                created_at=now,
-            )
-            db.add(alert)
-            detection_record.alert_triggered = True
+            elif category == "friend":
+                alert_created = True
+                alert_msg = f"ตรวจพบเพื่อน/คนรู้จัก: {person_name} ถึงบริเวณ {location}"
+                alert = Alert(
+                    title=f"ตรวจพบเพื่อน: {person_name}",
+                    description=f"AI ตรวจพบและจดจำใบหน้าเพื่อนสนิท/ผู้มาเยือน ({person_name}) บริเวณ {location} (ความแม่นยำ {confidence}%)",
+                    category="friend",
+                    severity="info",
+                    location=location,
+                    detection_id=detection_record.id,
+                    thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                    is_read=False,
+                    created_at=now,
+                )
+                db.add(alert)
+                detection_record.alert_triggered = True
 
-        # 3. ส่งการแจ้งเตือนทางอีเมลอัตโนมัติ (Gmail SMTP) แบบ Non-blocking
-        if alert_created:
+            elif category == "other":
+                alert_created = True
+                alert_msg = f"ตรวจพบบุคคลทั่วไป: {person_name} บริเวณ {location}"
+                alert = Alert(
+                    title=f"ตรวจพบบุคคล (อื่นๆ): {person_name}",
+                    description=f"AI ตรวจพบและจดจำใบหน้า {person_name} ({role}) บริเวณ {location} (ความแม่นยำ {confidence}%)",
+                    category="other",
+                    severity="info",
+                    location=location,
+                    detection_id=detection_record.id,
+                    thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                    is_read=False,
+                    created_at=now,
+                )
+                db.add(alert)
+                detection_record.alert_triggered = True
+
+            # 3. ส่งการแจ้งเตือนทางอีเมลอัตโนมัติ (Gmail SMTP) แบบ Non-blocking
             trigger_email_alert_async(
                 category=category,
                 person_name=person_name,
@@ -281,6 +317,9 @@ def classify_and_record(
                 confidence=confidence,
                 snapshot_rel_path=snapshot_url or (matched_person.photo_url if matched_person else ""),
             )
+        else:
+            alert_created = False
+            alert_msg = f"{person_name} (ตรวจพบต่อเนื่อง - บันทึกภาพ Snapshot แต่หน่วงแจ้งเตือนตามรอบ 5 นาที)"
 
         results.append({
             "person_name": person_name,
