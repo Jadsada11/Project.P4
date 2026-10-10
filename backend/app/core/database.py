@@ -230,14 +230,14 @@ def seed_initial_data(db) -> None:
 
 def run_sqlite_migrations() -> None:
     """Ensure schema migrations and indices exist for SQLite database."""
-    if not settings.DATABASE_URL.startswith("sqlite"):
+    if not db_url.startswith("sqlite"):
         return
 
     with engine.connect() as conn:
         # 1. Check if person_id column exists in alerts table
         result = conn.execute(text("PRAGMA table_info(alerts);"))
-        columns = [row[1] for row in result.fetchall()]
-        if "person_id" not in columns:
+        alert_cols = [row[1] for row in result.fetchall()]
+        if "person_id" not in alert_cols:
             try:
                 conn.execute(
                     text(
@@ -247,30 +247,66 @@ def run_sqlite_migrations() -> None:
                 conn.commit()
                 print("[DB Migration] Added 'person_id' column to 'alerts' table.")
             except Exception as e:
-                print(f"[DB Migration Warning] Could not alter alerts table: {e}")
+                print(f"[DB Migration Warning] Could not alter alerts table for person_id: {e}")
 
-        # 2. Create indices for foreign keys and queries
+        # 2. Check if user_id column exists in persons table
+        result = conn.execute(text("PRAGMA table_info(persons);"))
+        person_cols = [row[1] for row in result.fetchall()]
+        if "user_id" not in person_cols:
+            try:
+                conn.execute(
+                    text(
+                        "ALTER TABLE persons ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;"
+                    )
+                )
+                conn.commit()
+                print("[DB Migration] Added 'user_id' column to 'persons' table.")
+            except Exception as e:
+                print(f"[DB Migration Warning] Could not alter persons table for user_id: {e}")
+
+        # 3. Check if user_id column exists in detection_history table
+        result = conn.execute(text("PRAGMA table_info(detection_history);"))
+        detection_cols = [row[1] for row in result.fetchall()]
+        if "user_id" not in detection_cols:
+            try:
+                conn.execute(
+                    text(
+                        "ALTER TABLE detection_history ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;"
+                    )
+                )
+                conn.commit()
+                print("[DB Migration] Added 'user_id' column to 'detection_history' table.")
+            except Exception as e:
+                print(f"[DB Migration Warning] Could not alter detection_history table for user_id: {e}")
+
+        # 4. Check if user_id column exists in alerts table
+        result = conn.execute(text("PRAGMA table_info(alerts);"))
+        alert_cols = [row[1] for row in result.fetchall()]
+        if "user_id" not in alert_cols:
+            try:
+                conn.execute(
+                    text(
+                        "ALTER TABLE alerts ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;"
+                    )
+                )
+                conn.commit()
+                print("[DB Migration] Added 'user_id' column to 'alerts' table.")
+            except Exception as e:
+                print(f"[DB Migration Warning] Could not alter alerts table for user_id: {e}")
+
+        # 5. Create indices for foreign keys and queries
         try:
-            conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS ix_alerts_person_id ON alerts (person_id);"
-                )
-            )
-            conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS ix_alerts_detection_id ON alerts (detection_id);"
-                )
-            )
-            conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS ix_detection_history_person_id ON detection_history (person_id);"
-                )
-            )
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_persons_user_id ON persons (user_id);"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_detection_history_user_id ON detection_history (user_id);"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_alerts_user_id ON alerts (user_id);"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_alerts_person_id ON alerts (person_id);"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_alerts_detection_id ON alerts (detection_id);"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_detection_history_person_id ON detection_history (person_id);"))
             conn.commit()
         except Exception as e:
             print(f"[DB Migration Warning] Could not create indices: {e}")
 
-        # 3. Backfill alerts.person_id from detection_history where possible
+        # 6. Backfill alerts.person_id from detection_history where possible
         try:
             conn.execute(
                 text(
@@ -288,6 +324,40 @@ def run_sqlite_migrations() -> None:
             conn.commit()
         except Exception as e:
             print(f"[DB Migration Warning] Could not backfill alerts.person_id: {e}")
+
+        # 7. Backfill user_id from first user for existing records
+        try:
+            conn.execute(
+                text(
+                    """
+                    UPDATE persons
+                    SET user_id = (SELECT id FROM users LIMIT 1)
+                    WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM users);
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE detection_history
+                    SET user_id = (SELECT id FROM users LIMIT 1)
+                    WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM users);
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    UPDATE alerts
+                    SET user_id = (SELECT id FROM users LIMIT 1)
+                    WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM users);
+                    """
+                )
+            )
+            conn.commit()
+        except Exception as e:
+            print(f"[DB Migration Warning] Could not backfill user_id: {e}")
+
 
 
 def init_db() -> None:

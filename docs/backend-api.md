@@ -73,14 +73,16 @@ backend/
 | Column | Type | Constraints | Description |
 | :--- | :--- | :--- | :--- |
 | `id` | `INTEGER` | Primary Key, Auto Increment | รหัสบุคคล |
+| `user_id` | `INTEGER` | Foreign Key (`users.id` ON DELETE SET NULL), Indexed, Nullable | รหัสผู้ใช้เจ้าหน้าที่ที่สร้างข้อมูล (`fk_person_user`) |
 | `name` | `VARCHAR` | Not Null | ชื่อ-นามสกุล บุคคล |
 | `category` | `VARCHAR` | Indexed, Not Null | หมวดหมู่: `household`, `neighbor`, `friend`, `delivery`, `other`, `stranger` |
 | `role` | `VARCHAR` | Nullable | บทบาท เช่น Family, Neighbor, Friend, Delivery, Guest, Stranger |
 | `department` | `VARCHAR` | Nullable | แผนกหรือความสัมพันธ์ (เช่น ครอบครัว, เพื่อนบ้าน, เพื่อน, ขนส่ง) |
 | `notes` | `TEXT` | Nullable | หมายเหตุเพิ่มเติมและข้อมูลความปลอดภัย |
 | `photo_url` | `VARCHAR` | Nullable | ลิงก์รูปถ่ายโปรไฟล์หลัก |
-| `accuracy` | `FLOAT` | Default: `0.0` | ค่าความแม่นยำของใบหน้า (%) |
-| `images_count` | `INTEGER` | Default: `0` | จำนวนรูปภาพในชุด Dataset |
+| `face_embedding` | `TEXT` | Nullable | JSON-encoded 576-dim feature vector |
+| `accuracy` | `FLOAT` | Default: `98.5` | ค่าความแม่นยำของใบหน้า (%) |
+| `images_count` | `INTEGER` | Default: `1` | จำนวนรูปภาพในชุด Dataset |
 | `is_active` | `BOOLEAN` | Default: `True` | สถานะเปิดใช้งาน |
 | `created_at` | `DATETIME` | Default: `UTC Now` | วันเวลาที่ลงทะเบียน |
 | `updated_at` | `DATETIME` | Default: `UTC Now` | วันเวลาที่แก้ไขล่าสุด |
@@ -89,7 +91,8 @@ backend/
 | Column | Type | Constraints | Description |
 | :--- | :--- | :--- | :--- |
 | `id` | `INTEGER` | Primary Key, Auto Increment | รหัสประวัติการตรวจจับ |
-| `person_id` | `INTEGER` | Foreign Key (`persons.id` ON DELETE SET NULL), Indexed, Nullable | เชื่อมโยงกับบุคคลที่ระบุตัวตนได้ |
+| `person_id` | `INTEGER` | Foreign Key (`persons.id` ON DELETE SET NULL), Indexed, Nullable | เชื่อมโยงกับบุคคลที่ระบุตัวตนได้ (`fk_detection_person`) |
+| `user_id` | `INTEGER` | Foreign Key (`users.id` ON DELETE SET NULL), Indexed, Nullable | รหัสผู้ใช้งานระบบ (`fk_detection_user`) |
 | `person_name` | `VARCHAR` | Not Null | ชื่อบุคคลที่ตรวจพบ |
 | `category` | `VARCHAR` | Indexed, Not Null | `household`, `neighbor`, `friend`, `delivery`, `other`, หรือ `stranger` |
 | `confidence` | `FLOAT` | Not Null | ค่าความมั่นใจในการจำแนก (%) |
@@ -109,8 +112,9 @@ backend/
 | `category` | `VARCHAR` | Indexed, Not Null | `household`, `neighbor`, `friend`, `delivery`, `other`, หรือ `stranger` |
 | `severity` | `VARCHAR` | Not Null | ระดับความรุนแรง: `info`, `warning`, `critical` |
 | `location` | `VARCHAR` | Default: `'Main Entrance'` | ตำแหน่งที่เกิดเหตุ |
-| `detection_id`| `INTEGER` | Foreign Key (`detection_history.id` ON DELETE SET NULL), Indexed, Nullable | เชื่อมโยงกับประวัติการตรวจจับ |
+| `detection_id`| `INTEGER` | Foreign Key (`detection_history.id` ON DELETE SET NULL), Indexed, Nullable | เชื่อมโยงกับประวัติการตรวจจับ (`fk_alert_detection`) |
 | `person_id` | `INTEGER` | Foreign Key (`persons.id` ON DELETE SET NULL), Indexed, Nullable | เชื่อมโยงโดยตรงกับบุคคลที่ลงทะเบียนหรือระบุตัวตนได้ |
+| `user_id` | `INTEGER` | Foreign Key (`users.id` ON DELETE SET NULL), Indexed, Nullable | รหัสผู้ใช้งานระบบ (`fk_alert_user`) |
 | `thumbnail` | `VARCHAR` | Nullable | ภาพ Snapshot ตัวอย่าง |
 | `is_read` | `BOOLEAN` | Indexed, Default: `False` | สถานะเปิดอ่านแล้ว |
 | `created_at` | `DATETIME` | Indexed, Default: `UTC Now` | เวลาที่สร้างแจ้งเตือน |
@@ -119,33 +123,46 @@ backend/
 
 ## 3. ความสัมพันธ์และการรักษาระเบียบข้อมูล (Database Relationships & Foreign Key Safety)
 
-ระบบฐานข้อมูลออกแบบให้เชื่อมโยงความสัมพันธ์แบบ **Bi-directional (สองทิศทาง)** ครบทุก Entity สำคัญ:
+ระบบฐานข้อมูลออกแบบให้เชื่อมโยงความสัมพันธ์ตรงตามแผนภาพสถาปัตยกรรม (Entity-Relationship Diagram):
 
 ```text
-  ┌──────────────┐         1:N (detections)          ┌─────────────────────┐
-  │   persons    │──────────────────────────────────▶│  detection_history  │
-  └──────┬───────┘                                   └──────────┬──────────┘
-         │                                                      │
-         │ 1:N (alerts)                                         │ 1:N (alerts)
-         ▼                                                      ▼
-  ┌────────────────────────────────────────────────────────────────────────┐
-  │                                alerts                                  │
-  └────────────────────────────────────────────────────────────────────────┘
+                           ┌─────────────────────────┐
+                           │          users          │
+                           └────────────┬────────────┘
+         ┌──────────────────────────────┼──────────────────────────────┐
+         │ 1:N (fk_person_user)         │ 1:N (fk_detection_user)      │ 1:N (fk_alert_user)
+         ▼                              ▼                              ▼
+  ┌──────────────┐         1:N          ┌─────────────────────┐        │
+  │   persons    │─────────────────────▶│  detection_history  │        │
+  └──────┬───────┘ (fk_detection_person)└──────────┬──────────┘        │
+         │                                          │                  │
+         │ 1:N                                      │ 1:N              │
+         ▼                                          ▼                  ▼
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │                                   alerts                                   │
+  │                         (fk_alert_detection)                               │
+  └────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 3.1 การเชื่อมโยงความสัมพันธ์ในระดับ ORM (SQLAlchemy 2.0)
-1. **`Person` ↔ `DetectionHistory` (1-to-Many):**
-   - `Person.detections`: ดึงประวัติการตรวจจับทั้งหมดของบุคคลนั้น
-   - `DetectionHistory.person`: อ้างอิงโมเดลบุคคลที่ตรงกับใบหน้า
-   - Foreign Key: `detection_history.person_id` (`ON DELETE SET NULL`, indexed)
-2. **`Person` ↔ `Alert` (1-to-Many):**
-   - `Person.alerts`: ดึงรายการแจ้งเตือนทั้งหมดที่เกี่ยวข้องกับบุคคลนั้นโดยตรง
-   - `Alert.person`: อ้างอิงบุคคลเจ้าของการแจ้งเตือน
-   - Foreign Key: `alerts.person_id` (`ON DELETE SET NULL`, indexed)
-3. **`DetectionHistory` ↔ `Alert` (1-to-Many):**
-   - `DetectionHistory.alerts`: ดึงรายการแจ้งเตือนที่เกิดจากเฟรมตรวจจับนั้น
-   - `Alert.detection`: อ้างอิงเหตุการณ์ตรวจจับต้นทาง
-   - Foreign Key: `alerts.detection_id` (`ON DELETE SET NULL`, indexed)
+1. **`User` ↔ `Person` (1-to-Many):**
+   - `User.persons`: รายการบุคคลที่สร้าง/กำกับดูแลโดยผู้ใช้งานนี้
+   - `Person.user`: ผู้ใช้งานระบบเจ้าของข้อมูล (`ForeignKey("users.id", name="fk_person_user")`)
+2. **`User` ↔ `DetectionHistory` (1-to-Many):**
+   - `User.detections`: รายการประวัติการตรวจจับในระบบที่ผูกกับบัญชีผู้ใช้
+   - `DetectionHistory.user`: ผู้ใช้งานระบบ (`ForeignKey("users.id", name="fk_detection_user")`)
+3. **`User` ↔ `Alert` (1-to-Many):**
+   - `User.alerts`: รายการแจ้งเตือนความปลอดภัยในระบบของผู้ใช้งาน
+   - `Alert.user`: ผู้ใช้งานระบบ (`ForeignKey("users.id", name="fk_alert_user")`)
+4. **`Person` ↔ `DetectionHistory` (1-to-Many):**
+   - `Person.detections`: ประวัติการตรวจจับทั้งหมดของบุคคลนั้น
+   - `DetectionHistory.person`: บุคคลที่ตรงกับผลการตรวจจับ (`ForeignKey("persons.id", name="fk_detection_person")`)
+5. **`DetectionHistory` ↔ `Alert` (1-to-Many):**
+   - `DetectionHistory.alerts`: รายการแจ้งเตือนที่เกิดจากเฟรมตรวจจับนั้น
+   - `Alert.detection`: เหตุการณ์ตรวจจับต้นทาง (`ForeignKey("detection_history.id", name="fk_alert_detection")`)
+6. **`Person` ↔ `Alert` (1-to-Many):**
+   - `Person.alerts`: รายการแจ้งเตือนทั้งหมดของบุคคลนั้นโดยตรง
+   - `Alert.person`: บุคคลเจ้าของการแจ้งเตือน (`ForeignKey("persons.id")`)
 
 ### 3.2 การบังคับใช้ Foreign Keys ใน SQLite (`PRAGMA foreign_keys = ON`)
 - SQLite เริ่มต้นโดยปิดการตรวจสอบ Foreign Keys ไว้ ระบบจึงเชื่อมต่อผ่าน SQLAlchemy Event Listener:
@@ -161,6 +178,7 @@ backend/
 ### 3.3 กลไกความปลอดภัยเมื่อลบข้อมูล (Deletion FK Safety)
 - **เมื่อลบประวัติการตรวจจับ (`DetectionHistory`):** ปลด `alerts.detection_id = None` ก่อน เพื่อคงข้อมูลประวัติแจ้งเตือนไว้โดยไม่มี Broken Reference
 - **เมื่อลบบุคคล (`Person`):** ปลด `detection_history.person_id = None` และ `alerts.person_id = None` ก่อน เพื่อคงประวัติการตรวจจับและภาพ Snapshot ไว้ในระบบ
+
 
 
 ---
@@ -331,13 +349,14 @@ Interactive Swagger UI: `http://localhost:8000/docs`
   }
   ```
 
-#### ระบบแจ้งเตือนทางอีเมลอัตโนมัติ (Automated Email Alerts) & การหน่วงเวลาแจ้งเตือน (5-Minute Cooldown)
-- **ทริกเกอร์:** ทำงานอัตโนมัติเมื่อ `person_classifier.py` ตรวจพบเหตุการณ์ความปลอดภัย (`delivery`, `stranger`, `household`, `neighbor`, `friend`, `other`)
+#### ระบบแจ้งเตือนทางอีเมลอัตโนมัติ (Automated Email Alerts) & การหน่วงเวลาแจ้งเตือน (3-Minute Cooldown)
+- **ทริกเกอร์:** ทำงานอัตโนมัติเฉพาะเมื่อ `person_classifier.py` ตรวจพบคนแปลกหน้า (`stranger`) เท่านั้น (ไม่ส่งอีเมลสำหรับคนในบ้าน, คนส่งของ, เพื่อนบ้าน, หรือคนรู้จัก)
 - **สถาปัตยกรรม:** ส่งผ่าน Non-blocking Background Thread (`email_service.py`) เพื่อไม่ให้หน่วงลูป YOLO Inference
-- **การแนบรูปภาพ:** แนบภาพถ่ายสแนปช็อตแบบ Inline Attachment (CID Image) เพื่อให้เปิดดูภาพใบหน้า/คนส่งของได้ทันทีจากแอปอีเมลบนมือถือ
-- **Anti-Spam Alert Cooldown (5 นาที / 300 วินาที):**
+- **การแนบรูปภาพ:** แนบภาพถ่ายสแนปช็อตแบบ Inline Attachment (CID Image) เพื่อให้เปิดดูภาพใบหน้าคนแปลกหน้าได้ทันทีจากแอปอีเมลบนมือถือ
+- **Anti-Spam Alert Cooldown (3 นาที / 180 วินาที):**
   - **บันทึก Snapshot ทุก 5 วินาที:** ระบบยังคงตรวจจับเฟรมและบันทึกประวัติการตรวจจับ (`detection_history`) พร้อมรูปภาพสแนปช็อต `.jpg` ในโฟลเดอร์ `/data/snapshots/` ทุก 5 วินาทีอย่างครบถ้วน
-  - **จำกัดรอบการสร้าง Alert และส่งอีเมล:** จะบันทึกเรคคอร์ดลงตาราง `alerts` และส่งอีเมลแจ้งเตือนซ้ำสำหรับบุคคล/หมวดหมู่เดิม **ทุกๆ 5 นาที (300 วินาที)** เท่านั้น เพื่อป้องกันการรบกวน (Spam) ขณะบุคคลยืนอยู่หน้ากล้องอย่างต่อเนื่อง
+  - **จำกัดรอบการสร้าง Alert และส่งอีเมล:** จะบันทึกเรคคอร์ดลงตาราง `alerts` และส่งอีเมลแจ้งเตือนซ้ำสำหรับบุคคลแปลกหน้า **ทุกๆ 3 นาที (180 วินาที)** เท่านั้น เพื่อป้องกันการรบกวน (Spam) ขณะบุคคลยืนอยู่หน้ากล้องอย่างต่อเนื่อง
+
 
 ---
 

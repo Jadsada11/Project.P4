@@ -293,30 +293,26 @@ def trigger_email_alert_async(
     if not settings.SMTP_ENABLED:
         return
 
-    # ตรวจสอบว่าหมวดหมู่นี้ต้องส่งอีเมลหรือไม่
-    alert_categories = settings.EMAIL_ALERT_CATEGORIES
-    if isinstance(alert_categories, str):
-        alert_categories = [c.strip().lower() for c in alert_categories.split(",")]
-    if category.lower() not in [c.lower() for c in alert_categories]:
+    # ตรวจสอบว่าส่งแจ้งเตือนทางอีเมลเฉพาะคนแปลกหน้า (stranger) เท่านั้น
+    if category.lower() != "stranger":
+        logger.debug(f"[Email Alert] Category '{category}' is ignored. Email alerts are sent only for strangers.")
         return
 
-    # Cooldown Check (ป้องกันสแปมอีเมลซ้ำๆ ส่งสูงสุดทุก 5 นาที / 300 วิ)
+    # Cooldown Check (ป้องกันสแปมอีเมลซ้ำๆ ส่งสูงสุดทุก 3 นาที / 180 วิ)
     now = time.time()
-    cooldown_key = "stranger" if category.lower() == "stranger" else f"{category.lower()}_{person_name}"
+    cooldown_key = "stranger"
     with _cooldown_lock:
         last_sent = _last_sent_timestamps.get(cooldown_key, 0)
-        # ตรวจสอบ Cooldown รวมระดับหมวดหมู่ด้วยเพื่อความปลอดภัย
-        cat_last_sent = _last_sent_timestamps.get(category.lower(), 0)
-        cooldown_sec = settings.EMAIL_ALERT_COOLDOWN_SECONDS
+        cooldown_sec = getattr(settings, "EMAIL_ALERT_COOLDOWN_SECONDS", 180)
 
-        if (now - last_sent < cooldown_sec) or (now - cat_last_sent < min(cooldown_sec, 60)):
-            logger.debug(f"[Email Alert Cooldown] Skipped email for {cooldown_key} (Sent {int(now - last_sent)}s ago)")
+        if now - last_sent < cooldown_sec:
+            logger.debug(f"[Email Alert Cooldown] Skipped email for stranger (Sent {int(now - last_sent)}s ago, cooldown {cooldown_sec}s)")
             return
 
         _last_sent_timestamps[cooldown_key] = now
-        _last_sent_timestamps[category.lower()] = now
 
     detection_time_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
 
     # รันใน Thread แยก เพื่อไม่ให้กระทบประสิทธิภาพของลูปตรวจจับ YOLO
     thread = threading.Thread(

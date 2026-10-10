@@ -38,10 +38,10 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 465
     SMTP_USER: str = "thanakornnillamai@gmail.com"
     SMTP_PASSWORD: str = "khlcoalqwizlhrlg"
-    NOTIFICATION_RECIPIENT_EMAIL: str = "thanakornnillamai@gmail.com"
-    ALERT_COOLDOWN_SECONDS: int = 300  # 5 minutes (5 นาที)
-    EMAIL_ALERT_COOLDOWN_SECONDS: int = 300  # 5 minutes (5 นาที)
-    EMAIL_ALERT_CATEGORIES: Union[List[str], str] = ["delivery", "stranger"]
+    ALERT_COOLDOWN_SECONDS: int = 180  # 3 minutes (3 นาที)
+    EMAIL_ALERT_COOLDOWN_SECONDS: int = 180  # 3 minutes (3 นาที)
+    EMAIL_ALERT_CATEGORIES: Union[List[str], str] = ["stranger"]
+
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod

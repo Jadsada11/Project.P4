@@ -10,7 +10,13 @@ class DetectionHistory(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     person_id = Column(
         Integer,
-        ForeignKey("persons.id", ondelete="SET NULL"),
+        ForeignKey("persons.id", name="fk_detection_person", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", name="fk_detection_user", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -29,7 +35,9 @@ class DetectionHistory(Base):
 
     # Relationships
     person = relationship("Person", back_populates="detections")
+    user = relationship("User", back_populates="detections")
     alerts = relationship("Alert", back_populates="detection", passive_deletes=True)
 
     def __repr__(self) -> str:
-        return f"<DetectionHistory(id={self.id}, name='{self.person_name}', category='{self.category}')>"
+        return f"<DetectionHistory(id={self.id}, name='{self.person_name}', category='{self.category}', user_id={self.user_id})>"
+

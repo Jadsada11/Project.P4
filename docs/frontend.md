@@ -100,7 +100,8 @@ frontend/
 ใช้ `isDetectingRef = useRef(false)` เพื่อทำหน้าที่เป็น In-flight Guard โดยไม่ทำให้ Component Re-mount หรือทำลาย Interval ทิ้ง ทำให้ตัวตั้งเวลา (Timer Interval 5 วินาที per snapshot) ทำงานต่อเนื่องสม่ำเสมอ 24/7
 
 - **Snapshot ทุก 5 วินาที:** ระบบจับภาพและรัน AI โมเดลทุก 5 วินาที เพื่ออัปเดต Bounding Box สดบนจอ และบันทึก `detection_history` พร้อมรูปภาพ Snapshot ลงระบบ
-- **แจ้งเตือนทุก 5 นาที (Alert Cooldown):** เสียงแจ้งเตือน (Audio Chime), การแจ้งเตือนบนหน้าจอ (Global Alert Toast) และ Desktop Push Notification จะทำงานเฉพาะเมื่อมี Alert ใหม่ที่ผ่านเงื่อนไข Cooldown 5 นาที (300 วินาที) จาก Backend เพื่อไม่ให้เกิดเสียงรบกวนต่อเนื่องทุก 5 วินาที
+- **แจ้งเตือนทุก 3 นาที (Alert Cooldown):** เสียงแจ้งเตือน (Audio Chime), การแจ้งเตือนบนหน้าจอ (Global Alert Toast) และ Desktop Push Notification จะทำงานเฉพาะเมื่อมี Alert ใหม่ที่ผ่านเงื่อนไข Cooldown 3 นาที (180 วินาที) จาก Backend เพื่อไม่ให้เกิดเสียงรบกวนต่อเนื่องทุก 5 วินาที
+
 
 ### 4.2 Zero-Latency HTML5 Canvas Frame Capture
 ระบบดึงเฟรมภาพปัจจุบันจากแท็ก `<img>` (ESP32 Stream) หรือ `<video>` (Webcam) โดยตรงผ่าน Canvas API และแปลงเป็น Blob ส่งไปยัง `/api/v1/detection/detect-image` ทำให้ได้ภาพเดียวกับที่เห็นบนจอ 100% โดยไม่แย่งแบนด์วิดท์สตรีมของ ESP32

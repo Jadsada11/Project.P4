@@ -33,6 +33,7 @@ class DetectESP32Request(BaseModel):
 class DetectionHistoryResponse(BaseModel):
     id: int
     person_id: Optional[int] = None
+    user_id: Optional[int] = None
     person_name: str
     category: str
     confidence: float
@@ -44,6 +45,7 @@ class DetectionHistoryResponse(BaseModel):
     timestamp: datetime
 
     class Config:
+
         from_attributes = True
 
 

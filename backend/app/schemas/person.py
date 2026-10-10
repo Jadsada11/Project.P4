@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class PersonBase(BaseModel):
+    user_id: Optional[int] = Field(None, description="ID เจ้าหน้าที่/ผู้ใช้งานที่สร้างข้อมูล (FK users.id)")
     name: str = Field(..., min_length=1, max_length=100)
     category: str = Field("household", description="'household' (คนในบ้าน), 'neighbor' (เพื่อนบ้าน), 'friend' (เพื่อน), 'delivery' (คนส่งของ), 'other' (อื่นๆ), 'stranger' (คนแปลกหน้า)")
     role: str = Field("Family", max_length=50)
@@ -13,6 +14,7 @@ class PersonBase(BaseModel):
     accuracy: float = Field(98.5, ge=0.0, le=100.0)
     images_count: int = Field(1, ge=0)
     is_active: bool = True
+
 
 
 class PersonCreate(PersonBase):

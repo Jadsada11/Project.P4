@@ -11,8 +11,10 @@ class AlertBase(BaseModel):
     location: str = Field("หน้าประตูบ้าน (Main Entrance)", max_length=100)
     detection_id: Optional[int] = None
     person_id: Optional[int] = None
+    user_id: Optional[int] = None
     thumbnail: str = ""
     is_read: bool = False
+
 
 
 class AlertCreate(AlertBase):

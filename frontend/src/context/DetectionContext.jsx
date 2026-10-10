@@ -336,8 +336,9 @@ export function DetectionProvider({ children }) {
         const primary = res.detections[0];
         const alertCategory = primary.category || (hasStranger ? "stranger" : "household");
 
-        // แจ้งเตือน (เสียง / Toast / Desktop Push) เฉพาะเมื่อมีการสร้าง Alert จาก Backend (รอบ 5 นาที)
+        // แจ้งเตือน (เสียง / Toast / Desktop Push) เฉพาะเมื่อมีการสร้าง Alert จาก Backend (รอบ 3 นาที)
         const isAlertTriggered = res.detections.some((d) => d.alert_created === true);
+
 
         if (isAlertTriggered) {
           playAlertChime(alertCategory);

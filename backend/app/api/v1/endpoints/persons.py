@@ -123,6 +123,7 @@ def create_person(
     """
     processed_photo = process_photo_url(person_in.photo_url)
     person = Person(
+        user_id=person_in.user_id or 1,
         name=person_in.name,
         category=person_in.category,
         role=person_in.role,
@@ -134,6 +135,7 @@ def create_person(
         is_active=person_in.is_active,
     )
     db.add(person)
+
     db.commit()
     db.refresh(person)
 

@@ -19,17 +19,18 @@ from app.services.email_service import trigger_email_alert_async
 
 logger = logging.getLogger("person_classifier")
 
-# 5-minute alert cooldown tracker (300 seconds)
+# 3-minute alert cooldown tracker (180 seconds)
 _alert_cooldowns: Dict[str, float] = {}
 _cooldown_lock = threading.Lock()
 
 
 def should_trigger_alert(category: str, person_name: str, person_id: Optional[int] = None) -> bool:
     """
-    Check if an alert should be created based on ALERT_COOLDOWN_SECONDS (default 300s = 5 minutes).
+    Check if an alert should be created based on ALERT_COOLDOWN_SECONDS (default 180s = 3 minutes).
     Throttles alert creation per person/category so alerts are not spammed every 5s snapshot.
     """
-    cooldown = getattr(settings, "ALERT_COOLDOWN_SECONDS", 300)
+    cooldown = getattr(settings, "ALERT_COOLDOWN_SECONDS", 180)
+
     now_ts = time.time()
 
     # For strangers, use category keying to prevent transient IDs/names from bypassing cooldown
@@ -190,6 +191,7 @@ def classify_and_record(
         # 1. บันทึก History ลง SQLite
         detection_record = DetectionHistory(
             person_id=matched_person.id if matched_person else None,
+            user_id=matched_person.user_id if (matched_person and matched_person.user_id) else 1,
             person_name=person_name,
             category=category,
             confidence=confidence,
@@ -203,10 +205,12 @@ def classify_and_record(
         db.add(detection_record)
         db.flush()
 
-        # 2. ตรวจสอบการสร้างการแจ้งเตือน (Alerts) พร้อมระบบ Cooldown 5 นาที (300 วินาที)
+        # 2. ตรวจสอบการสร้างการแจ้งเตือน (Alerts) พร้อมระบบ Cooldown 3 นาที (180 วินาที)
         can_alert = should_trigger_alert(category, person_name, matched_person.id if matched_person else None)
 
+
         if can_alert:
+            assigned_user_id = matched_person.user_id if (matched_person and matched_person.user_id) else 1
             if category == "stranger":
                 alert_created = True
                 alert_msg = f"ตรวจพบคนแปลกหน้า! บริเวณ {location}"
@@ -218,6 +222,7 @@ def classify_and_record(
                     location=location,
                     detection_id=detection_record.id,
                     person_id=matched_person.id if matched_person else None,
+                    user_id=assigned_user_id,
                     thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
                     is_read=False,
                     created_at=now,
@@ -236,6 +241,7 @@ def classify_and_record(
                     location=location,
                     detection_id=detection_record.id,
                     person_id=matched_person.id if matched_person else None,
+                    user_id=assigned_user_id,
                     thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
                     is_read=False,
                     created_at=now,
@@ -254,6 +260,7 @@ def classify_and_record(
                     location=location,
                     detection_id=detection_record.id,
                     person_id=matched_person.id if matched_person else None,
+                    user_id=assigned_user_id,
                     thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
                     is_read=False,
                     created_at=now,
@@ -272,6 +279,7 @@ def classify_and_record(
                     location=location,
                     detection_id=detection_record.id,
                     person_id=matched_person.id if matched_person else None,
+                    user_id=assigned_user_id,
                     thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
                     is_read=False,
                     created_at=now,
@@ -290,6 +298,7 @@ def classify_and_record(
                     location=location,
                     detection_id=detection_record.id,
                     person_id=matched_person.id if matched_person else None,
+                    user_id=assigned_user_id,
                     thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
                     is_read=False,
                     created_at=now,
@@ -308,6 +317,7 @@ def classify_and_record(
                     location=location,
                     detection_id=detection_record.id,
                     person_id=matched_person.id if matched_person else None,
+                    user_id=assigned_user_id,
                     thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
                     is_read=False,
                     created_at=now,
@@ -316,17 +326,20 @@ def classify_and_record(
                 detection_record.alert_triggered = True
 
 
-            # 3. ส่งการแจ้งเตือนทางอีเมลอัตโนมัติ (Gmail SMTP) แบบ Non-blocking
-            trigger_email_alert_async(
-                category=category,
-                person_name=person_name,
-                location=location,
-                confidence=confidence,
-                snapshot_rel_path=snapshot_url or (matched_person.photo_url if matched_person else ""),
-            )
+
+            # 3. ส่งการแจ้งเตือนทางอีเมลอัตโนมัติ (Gmail SMTP) เฉพาะกรณีตรวจพบคนแปลกหน้า (Stranger) แบบ Non-blocking
+            if category == "stranger":
+                trigger_email_alert_async(
+                    category=category,
+                    person_name=person_name,
+                    location=location,
+                    confidence=confidence,
+                    snapshot_rel_path=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                )
         else:
             alert_created = False
-            alert_msg = f"{person_name} (ตรวจพบต่อเนื่อง - บันทึกภาพ Snapshot แต่หน่วงแจ้งเตือนตามรอบ 5 นาที)"
+            alert_msg = f"{person_name} (ตรวจพบต่อเนื่อง - บันทึกภาพ Snapshot แต่หน่วงแจ้งเตือนตามรอบ 3 นาที)"
+
 
         results.append({
             "person_name": person_name,

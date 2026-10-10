@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from sqlalchemy import Boolean, Column, DateTime, Integer, String
+from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
@@ -22,5 +23,11 @@ class User(Base):
         nullable=False,
     )
 
+    # Relationships
+    persons = relationship("Person", back_populates="user", passive_deletes=True)
+    detections = relationship("DetectionHistory", back_populates="user", passive_deletes=True)
+    alerts = relationship("Alert", back_populates="user", passive_deletes=True)
+
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email='{self.email}', role='{self.role}')>"
+
