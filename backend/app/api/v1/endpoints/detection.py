@@ -269,6 +269,7 @@ def identify_history_person(
     # อัปเดต Alert ที่เชื่อมโยงกับ detection_id นี้ (ถ้ามี)
     linked_alert = db.query(Alert).filter(Alert.detection_id == history_id).first()
     if linked_alert:
+        linked_alert.person_id = person.id
         linked_alert.category = person.category
         if person.category == "household":
             linked_alert.title = f"ยืนยันตัวตนแล้ว: {person.name} (คนในบ้าน)"

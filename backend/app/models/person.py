@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
+from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
@@ -28,5 +29,18 @@ class Person(Base):
         nullable=False,
     )
 
+    # Relationships
+    detections = relationship(
+        "DetectionHistory",
+        back_populates="person",
+        passive_deletes=True,
+    )
+    alerts = relationship(
+        "Alert",
+        back_populates="person",
+        passive_deletes=True,
+    )
+
     def __repr__(self) -> str:
         return f"<Person(id={self.id}, name='{self.name}', category='{self.category}')>"
+

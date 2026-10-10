@@ -217,6 +217,7 @@ def classify_and_record(
                     severity="warning",
                     location=location,
                     detection_id=detection_record.id,
+                    person_id=matched_person.id if matched_person else None,
                     thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
                     is_read=False,
                     created_at=now,
@@ -234,6 +235,7 @@ def classify_and_record(
                     severity="info",
                     location=location,
                     detection_id=detection_record.id,
+                    person_id=matched_person.id if matched_person else None,
                     thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
                     is_read=False,
                     created_at=now,
@@ -251,6 +253,7 @@ def classify_and_record(
                     severity="info",
                     location=location,
                     detection_id=detection_record.id,
+                    person_id=matched_person.id if matched_person else None,
                     thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
                     is_read=False,
                     created_at=now,
@@ -268,6 +271,7 @@ def classify_and_record(
                     severity="info",
                     location=location,
                     detection_id=detection_record.id,
+                    person_id=matched_person.id if matched_person else None,
                     thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
                     is_read=False,
                     created_at=now,
@@ -285,6 +289,7 @@ def classify_and_record(
                     severity="info",
                     location=location,
                     detection_id=detection_record.id,
+                    person_id=matched_person.id if matched_person else None,
                     thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
                     is_read=False,
                     created_at=now,
@@ -302,12 +307,14 @@ def classify_and_record(
                     severity="info",
                     location=location,
                     detection_id=detection_record.id,
+                    person_id=matched_person.id if matched_person else None,
                     thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
                     is_read=False,
                     created_at=now,
                 )
                 db.add(alert)
                 detection_record.alert_triggered = True
+
 
             # 3. ส่งการแจ้งเตือนทางอีเมลอัตโนมัติ (Gmail SMTP) แบบ Non-blocking
             trigger_email_alert_async(

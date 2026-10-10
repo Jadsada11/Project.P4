@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.models.person import Person
+from app.models.detection import DetectionHistory
+from app.models.alert import Alert
 from app.schemas.person import PersonCreate, PersonResponse, PersonUpdate
 from app.services.face_embedding_service import (
     save_person_embeddings,
@@ -192,8 +194,18 @@ def delete_person(person_id: int, db: Session = Depends(get_db)):
     person = db.query(Person).filter(Person.id == person_id).first()
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
+
+    # ปลด Foreign Key ในตาราง detection_history และ alerts อย่างปลอดภัยเพื่อป้องกัน FK constraint error และคงประวัติการตรวจจับไว้
+    db.query(DetectionHistory).filter(DetectionHistory.person_id == person_id).update(
+        {"person_id": None}, synchronize_session=False
+    )
+    db.query(Alert).filter(Alert.person_id == person_id).update(
+        {"person_id": None}, synchronize_session=False
+    )
+
     db.delete(person)
     db.commit()
     # Remove from face embeddings model as well
     delete_person_embedding(person_id)
     return None
+

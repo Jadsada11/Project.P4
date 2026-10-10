@@ -44,6 +44,7 @@ export default function AlertsPage() {
         const formatted = data.map((a) => ({
           id: a.id,
           detectionId: a.detection_id,
+          personId: a.person_id,
           title: a.title,
           description: a.description,
           severity: a.severity || "warning",

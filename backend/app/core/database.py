@@ -1,31 +1,48 @@
 import os
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 from app.core.config import settings
 
-# Ensure sqlite directory exists if relative path like ./data/vigil.db
-if settings.DATABASE_URL.startswith("sqlite"):
-    db_path = settings.DATABASE_URL.replace("sqlite:///", "")
-    if db_path.startswith("./") or not os.path.isabs(db_path):
-        dir_name = os.path.dirname(db_path)
-        if dir_name:
-            os.makedirs(dir_name, exist_ok=True)
+# Ensure sqlite directory exists and path resolves consistently to backend/data/vigil.db
+BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+db_url = settings.DATABASE_URL
+if db_url.startswith("sqlite:///./"):
+    abs_db_path = os.path.abspath(os.path.join(BACKEND_DIR, db_url.replace("sqlite:///./", "")))
+    db_url = f"sqlite:///{abs_db_path.replace(os.sep, '/')}"
+    os.makedirs(os.path.dirname(abs_db_path), exist_ok=True)
+elif db_url.startswith("sqlite:///") and not os.path.isabs(db_url.replace("sqlite:///", "")):
+    abs_db_path = os.path.abspath(os.path.join(BACKEND_DIR, db_url.replace("sqlite:///", "")))
+    db_url = f"sqlite:///{abs_db_path.replace(os.sep, '/')}"
+    os.makedirs(os.path.dirname(abs_db_path), exist_ok=True)
 
 # For SQLite, check_same_thread=False is required for multi-threaded FastAPI requests
 connect_args = (
-    {"check_same_thread": False} if settings.DATABASE_URL.startswith("sqlite") else {}
+    {"check_same_thread": False} if db_url.startswith("sqlite") else {}
 )
 
 engine = create_engine(
-    settings.DATABASE_URL,
+    db_url,
     connect_args=connect_args,
     echo=False,
 )
 
+
+
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    """Enable foreign key constraints in SQLite."""
+    if settings.DATABASE_URL.startswith("sqlite"):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
+
 
 
 def seed_initial_data(db) -> None:
@@ -177,6 +194,7 @@ def seed_initial_data(db) -> None:
             severity="warning",
             location="ริมรั้วหน้าบ้าน (Perimeter Fence)",
             detection_id=h3.id,
+            person_id=p7.id,
             thumbnail=p7.photo_url,
             is_read=False,
             created_at=now - timedelta(minutes=45),
@@ -188,6 +206,7 @@ def seed_initial_data(db) -> None:
             severity="info",
             location="หน้าประตูรั้ว (Gate 1)",
             detection_id=h2.id,
+            person_id=p4.id,
             thumbnail=p4.photo_url,
             is_read=False,
             created_at=now - timedelta(minutes=25),
@@ -199,6 +218,7 @@ def seed_initial_data(db) -> None:
             severity="info",
             location="หน้าประตูหลัก (Main Entrance)",
             detection_id=h1.id,
+            person_id=p1.id,
             thumbnail=p1.photo_url,
             is_read=True,
             created_at=now - timedelta(minutes=10),
@@ -208,8 +228,70 @@ def seed_initial_data(db) -> None:
         db.commit()
 
 
+def run_sqlite_migrations() -> None:
+    """Ensure schema migrations and indices exist for SQLite database."""
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        return
+
+    with engine.connect() as conn:
+        # 1. Check if person_id column exists in alerts table
+        result = conn.execute(text("PRAGMA table_info(alerts);"))
+        columns = [row[1] for row in result.fetchall()]
+        if "person_id" not in columns:
+            try:
+                conn.execute(
+                    text(
+                        "ALTER TABLE alerts ADD COLUMN person_id INTEGER REFERENCES persons(id) ON DELETE SET NULL;"
+                    )
+                )
+                conn.commit()
+                print("[DB Migration] Added 'person_id' column to 'alerts' table.")
+            except Exception as e:
+                print(f"[DB Migration Warning] Could not alter alerts table: {e}")
+
+        # 2. Create indices for foreign keys and queries
+        try:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_alerts_person_id ON alerts (person_id);"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_alerts_detection_id ON alerts (detection_id);"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_detection_history_person_id ON detection_history (person_id);"
+                )
+            )
+            conn.commit()
+        except Exception as e:
+            print(f"[DB Migration Warning] Could not create indices: {e}")
+
+        # 3. Backfill alerts.person_id from detection_history where possible
+        try:
+            conn.execute(
+                text(
+                    """
+                    UPDATE alerts
+                    SET person_id = (
+                        SELECT detection_history.person_id
+                        FROM detection_history
+                        WHERE detection_history.id = alerts.detection_id
+                    )
+                    WHERE alerts.detection_id IS NOT NULL AND alerts.person_id IS NULL;
+                    """
+                )
+            )
+            conn.commit()
+        except Exception as e:
+            print(f"[DB Migration Warning] Could not backfill alerts.person_id: {e}")
+
+
 def init_db() -> None:
-    """Initialize database tables and seed ready-to-use initial data."""
+    """Initialize database tables, run migrations, and seed ready-to-use initial data."""
     # Import models so Base metadata is populated
     import app.models.user  # noqa: F401
     import app.models.person  # noqa: F401
@@ -217,6 +299,12 @@ def init_db() -> None:
     import app.models.alert  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+
+    # Run safe SQLite migrations (add missing columns/indices & backfill)
+    try:
+        run_sqlite_migrations()
+    except Exception as e:
+        print(f"[DB] Migration notice: {e}")
 
     # Seed initial data
     db = SessionLocal()
@@ -227,3 +315,4 @@ def init_db() -> None:
         db.rollback()
     finally:
         db.close()
+

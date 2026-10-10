@@ -89,7 +89,7 @@ backend/
 | Column | Type | Constraints | Description |
 | :--- | :--- | :--- | :--- |
 | `id` | `INTEGER` | Primary Key, Auto Increment | รหัสประวัติการตรวจจับ |
-| `person_id` | `INTEGER` | Foreign Key (`persons.id`), Nullable | เชื่อมโยงกับบุคคลที่ระบุตัวตนได้ |
+| `person_id` | `INTEGER` | Foreign Key (`persons.id` ON DELETE SET NULL), Indexed, Nullable | เชื่อมโยงกับบุคคลที่ระบุตัวตนได้ |
 | `person_name` | `VARCHAR` | Not Null | ชื่อบุคคลที่ตรวจพบ |
 | `category` | `VARCHAR` | Indexed, Not Null | `household`, `neighbor`, `friend`, `delivery`, `other`, หรือ `stranger` |
 | `confidence` | `FLOAT` | Not Null | ค่าความมั่นใจในการจำแนก (%) |
@@ -109,19 +109,59 @@ backend/
 | `category` | `VARCHAR` | Indexed, Not Null | `household`, `neighbor`, `friend`, `delivery`, `other`, หรือ `stranger` |
 | `severity` | `VARCHAR` | Not Null | ระดับความรุนแรง: `info`, `warning`, `critical` |
 | `location` | `VARCHAR` | Default: `'Main Entrance'` | ตำแหน่งที่เกิดเหตุ |
-| `detection_id`| `INTEGER` | Foreign Key (`detection_history.id`), Nullable | เชื่อมโยงกับประวัติการตรวจจับ |
+| `detection_id`| `INTEGER` | Foreign Key (`detection_history.id` ON DELETE SET NULL), Indexed, Nullable | เชื่อมโยงกับประวัติการตรวจจับ |
+| `person_id` | `INTEGER` | Foreign Key (`persons.id` ON DELETE SET NULL), Indexed, Nullable | เชื่อมโยงโดยตรงกับบุคคลที่ลงทะเบียนหรือระบุตัวตนได้ |
 | `thumbnail` | `VARCHAR` | Nullable | ภาพ Snapshot ตัวอย่าง |
 | `is_read` | `BOOLEAN` | Indexed, Default: `False` | สถานะเปิดอ่านแล้ว |
 | `created_at` | `DATETIME` | Indexed, Default: `UTC Now` | เวลาที่สร้างแจ้งเตือน |
 
 ---
 
-## 3. กลไกความปลอดภัยของฐานข้อมูล (Database Integrity & FK Safety)
+## 3. ความสัมพันธ์และการรักษาระเบียบข้อมูล (Database Relationships & Foreign Key Safety)
 
-เมื่อทำการลบข้อมูลในตาราง `detection_history` ระบบ Backend มีกลไก **FK Safety** ในตัว:
-- ค้นหาเรคอร์ดในตาราง `alerts` ที่มี `detection_id == history_id`
-- ปลด Foreign Key โดยการอัปเดต `alerts.detection_id = None` ก่อนลบเรคอร์ดประวัติ
-- ประโยชน์: ป้องกันข้อผิดพลาด `sqlite3.IntegrityError: FOREIGN KEY constraint failed` และคงประวัติการแจ้งเตือนไว้โดยไม่มี Broken Reference
+ระบบฐานข้อมูลออกแบบให้เชื่อมโยงความสัมพันธ์แบบ **Bi-directional (สองทิศทาง)** ครบทุก Entity สำคัญ:
+
+```text
+  ┌──────────────┐         1:N (detections)          ┌─────────────────────┐
+  │   persons    │──────────────────────────────────▶│  detection_history  │
+  └──────┬───────┘                                   └──────────┬──────────┘
+         │                                                      │
+         │ 1:N (alerts)                                         │ 1:N (alerts)
+         ▼                                                      ▼
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │                                alerts                                  │
+  └────────────────────────────────────────────────────────────────────────┘
+```
+
+### 3.1 การเชื่อมโยงความสัมพันธ์ในระดับ ORM (SQLAlchemy 2.0)
+1. **`Person` ↔ `DetectionHistory` (1-to-Many):**
+   - `Person.detections`: ดึงประวัติการตรวจจับทั้งหมดของบุคคลนั้น
+   - `DetectionHistory.person`: อ้างอิงโมเดลบุคคลที่ตรงกับใบหน้า
+   - Foreign Key: `detection_history.person_id` (`ON DELETE SET NULL`, indexed)
+2. **`Person` ↔ `Alert` (1-to-Many):**
+   - `Person.alerts`: ดึงรายการแจ้งเตือนทั้งหมดที่เกี่ยวข้องกับบุคคลนั้นโดยตรง
+   - `Alert.person`: อ้างอิงบุคคลเจ้าของการแจ้งเตือน
+   - Foreign Key: `alerts.person_id` (`ON DELETE SET NULL`, indexed)
+3. **`DetectionHistory` ↔ `Alert` (1-to-Many):**
+   - `DetectionHistory.alerts`: ดึงรายการแจ้งเตือนที่เกิดจากเฟรมตรวจจับนั้น
+   - `Alert.detection`: อ้างอิงเหตุการณ์ตรวจจับต้นทาง
+   - Foreign Key: `alerts.detection_id` (`ON DELETE SET NULL`, indexed)
+
+### 3.2 การบังคับใช้ Foreign Keys ใน SQLite (`PRAGMA foreign_keys = ON`)
+- SQLite เริ่มต้นโดยปิดการตรวจสอบ Foreign Keys ไว้ ระบบจึงเชื่อมต่อผ่าน SQLAlchemy Event Listener:
+  ```python
+  @event.listens_for(Engine, "connect")
+  def set_sqlite_pragma(dbapi_connection, connection_record):
+      cursor = dbapi_connection.cursor()
+      cursor.execute("PRAGMA foreign_keys=ON")
+      cursor.close()
+  ```
+- ทำให้คำสั่ง `ON DELETE SET NULL` ทำงานจริงใน SQLite ป้องกันการเกิด Orphan Foreign Key
+
+### 3.3 กลไกความปลอดภัยเมื่อลบข้อมูล (Deletion FK Safety)
+- **เมื่อลบประวัติการตรวจจับ (`DetectionHistory`):** ปลด `alerts.detection_id = None` ก่อน เพื่อคงข้อมูลประวัติแจ้งเตือนไว้โดยไม่มี Broken Reference
+- **เมื่อลบบุคคล (`Person`):** ปลด `detection_history.person_id = None` และ `alerts.person_id = None` ก่อน เพื่อคงประวัติการตรวจจับและภาพ Snapshot ไว้ในระบบ
+
 
 ---
 
