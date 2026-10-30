@@ -80,7 +80,7 @@ export default function TrainingPage() {
               : `http://localhost:8000${p.photo_url.startsWith("/") ? "" : "/"}${p.photo_url}`
             : "",
           avatar: p.name.substring(0, 2).toUpperCase(),
-          createdAt: new Date(p.created_at).toLocaleDateString("th-TH"),
+          createdAt: new Date(p.created_at).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" }),
         }));
         setPersons(formatted);
       }
@@ -126,7 +126,7 @@ export default function TrainingPage() {
 
   // Toggle Training / Live Inference
   const handleToggleTraining = () => {
-    const nowStr = new Date().toLocaleTimeString("th-TH");
+    const nowStr = new Date().toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok" });
     if (isTrainingActive) {
       setLogs((prev) => [
         ...prev,
@@ -148,7 +148,7 @@ export default function TrainingPage() {
     setIsRetraining(true);
     setRetrainSuccess(false);
 
-    const nowStr = new Date().toLocaleTimeString("th-TH");
+    const nowStr = new Date().toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok" });
     setLogs((prev) => [
       ...prev,
       `[${nowStr}] [TRIGGER] Requesting Full Model Retraining & Vector Re-index from Backend...`,
@@ -168,7 +168,7 @@ export default function TrainingPage() {
       }
     } catch (err) {
       console.error("Retrain error:", err);
-      const nowErr = new Date().toLocaleTimeString("th-TH");
+      const nowErr = new Date().toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok" });
       setLogs((prev) => [
         ...prev,
         `[${nowErr}] [ERROR] Retraining failed: ${err.message || err}`,
@@ -189,7 +189,7 @@ export default function TrainingPage() {
       await loadModelStatus();
       setLogs((prev) => [
         ...prev,
-        `[${new Date().toLocaleTimeString("th-TH")}] [DELETE] Removed #${id} ${name} and purged embedding vector.`,
+        `[${new Date().toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok" })}] [DELETE] Removed #${id} ${name} and purged embedding vector.`,
       ]);
     } catch (err) {
       console.error("Delete person error:", err);
@@ -312,11 +312,11 @@ export default function TrainingPage() {
           <div className="pt-2 text-[11px] text-[#6b6b6b] flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <Flame className="w-3.5 h-3.5 text-[#e65100]" />
-              <span>Cosine Threshold: 0.58</span>
+              <span>Cosine Threshold: 0.70</span>
             </div>
             <span className="text-[10px] text-[#8c8c8c]">
               {modelStats?.last_trained
-                ? `อัปเดตล่าสุด ${new Date(modelStats.last_trained).toLocaleTimeString("th-TH")}`
+                ? `อัปเดตล่าสุด ${new Date(modelStats.last_trained).toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok" })}`
                 : "พร้อมเทรน"}
             </span>
           </div>

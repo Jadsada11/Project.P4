@@ -95,7 +95,7 @@ In [DetectionPage.jsx](frontend/src/pages/detection/DetectionPage.jsx), the time
 When deleting detection history records in [detection.py](backend/app/api/v1/endpoints/detection.py), always unlink `alerts.detection_id = None` prior to executing the delete statement. This avoids SQLite FK constraint violations while preserving security alert logs.
 
 ### 4.4 Face Embeddings, Exemplars & Centroid Normalization
-In [face_embedding_service.py](backend/app/services/face_embedding_service.py), all face vectors MUST be 576-dimensional and $L_2$-normalized (`norm == 1.0`). Centroid calculation normalizes after computing the sum vector. Multi-template exemplar vectors (up to 6 diverse pose/angle templates) are stored alongside the centroid. The cosine similarity matching threshold is calibrated at `0.75` (`FACE_MATCH_THRESHOLD = 0.75`, cleanly separating strangers at $\le 0.68$ from recognized identities at $\ge 0.80 - 0.95$). Untrained individuals are strictly classified as `stranger`.
+In [face_embedding_service.py](backend/app/services/face_embedding_service.py), all face vectors MUST be 576-dimensional and $L_2$-normalized (`norm == 1.0`). Centroid calculation normalizes after computing the sum vector. Multi-template exemplar vectors (up to 6 diverse pose/angle templates) are stored alongside the centroid. The cosine similarity matching threshold is calibrated at `0.70` (`FACE_MATCH_THRESHOLD = 0.70`, cleanly separating strangers at $\le 0.684$ from recognized identities at $\ge 0.73 - 0.95$). Untrained individuals are strictly classified as `stranger`.
 
 ### 4.5 Real-Time Badge Sync
 Whenever alerts are read or deleted, always dispatch `window.dispatchEvent(new CustomEvent("vigil-alerts-updated"))` so that the Navbar unread badge updates immediately without page reloads.
@@ -118,8 +118,10 @@ The camera surveillance and AI face recognition pipeline operates continuously 2
   - `DetectionProvider` maintains a hidden stream element (`<img id="vigil-persistent-stream-img" ... />`) in the DOM at all times.
   - When outside `/detection` (where the main `#esp32-stream-img` is unmounted), the background detection loop seamlessly grabs frames from `#vigil-persistent-stream-img` using HTML5 Canvas and calls `POST /api/v1/detection/detect-image`.
   - If canvas frame grabbing is unavailable, it gracefully falls back to `POST /api/v1/detection/detect-esp32` (FastAPI backend proxy grab).
-- **Snapshot Frequency vs. Alert Cooldown (5s Snapshot / 3m Alert):**
-  - **Snapshot ทุก 5 วินาที:** ระบบจับภาพและวิเคราะห์ด้วย YOLO + MobileNetV3 พร้อมบันทึกภาพลง `/data/snapshots/` และประวัติลง `detection_history` ทุกๆ 5 วินาทีอย่างต่อเนื่อง
+- **Snapshot Policy & Frequency vs. Alert Cooldown:**
+  - **บันทึกภาพ Snapshot เฉพาะเมื่อเจอหน้าคนเท่านั้น:** หากไม่มีใบหน้าคนในเฟรม ระบบจะไม่บันทึกภาพและไม่บันทึกประวัติใดๆ ลงดิสก์ เพื่อประหยัดพื้นที่จัดเก็บและ I/O
+  - **บุคคลที่เทรน AI ไปแล้ว ไม่ต้อง Snapshot เพิ่ม:** สมาชิกในบ้าน เพื่อน เพื่อนบ้าน หรือบุคคลที่เทรนแล้ว จะไม่ถูกบันทึกภาพ Snapshot ใหม่ลงดิสก์ซ้ำๆ แต่จะใช้รูปโปรไฟล์เดิม (`photo_url`) บันทึกลงประวัติ
+  - **บันทึก Snapshot เฉพาะคนแปลกหน้า / ยังไม่ได้เทรน:** บันทึกภาพลง `/data/snapshots/` เฉพาะเมื่อตรวจพบบุคคลแปลกหน้า (`stranger`) เพื่อใช้ส่งอีเมลแจ้งเตือน แสดงใน Alert Toast และนำไปใช้ฟีเจอร์ Identify & Train
   - **แจ้งเตือนทุก 3 นาที (180 วินาที):** บันทึกลงตาราง `alerts`, ส่งเสียงเตือน (Chime) และแสดง Toast/Push Notification เฉพาะเมื่อพ้นรอบ Cooldown 3 นาที เพื่อป้องกันการแจ้งเตือนรบกวนต่อเนื่อง โดยการส่งอีเมล (Gmail SMTP) จะส่งเฉพาะเมื่อตรวจพบคนแปลกหน้า (`stranger`) เท่านั้น
 - **Dual-Trigger Instant Notification System**:
   1. **Direct Detection Trigger**: เมื่อ `runDetection()` ได้รับผลการตรวจจับที่ผ่านเงื่อนไขการสร้างแจ้งเตือนรอบ 3 นาที (`alert_created === true`) จะเรียก `playAlertChime()` และเปิด `alertNotification`
@@ -132,6 +134,16 @@ The camera surveillance and AI face recognition pipeline operates continuously 2
   - When on non-detection pages, detections float an interactive toast at the top-right corner with direct quick-action links to `/alerts` or `/detection`.
 - **Page Synchronization (`DetectionPage.jsx`)**:
   - In Live Detection view, the component consumes `useDetection()` for stream state and active detections. It uses `fetchStatsAndHistory()` to refresh visitor history and statistics cards without spawning redundant background intervals.
+
+### 4.9 Strict Thailand Timezone Synchronization (Asia/Bangkok / UTC+7 / ICT)
+All components across the entire platform operate strictly in Thailand Time (UTC+7):
+- **Backend Time Utility (`time_utils.py`)**: All database models (`DetectionHistory`, `Alert`, `Person`, `User`) default to `get_thailand_naive_now()` (`datetime.now(THAILAND_TZ).replace(tzinfo=None)`) so that raw SQLite timestamps directly match Thailand wall-clock time (`YYYY-MM-DD HH:MM:SS`).
+- **Pydantic API Serialization**: `serialize_thailand_datetime` serializes all timestamps in ISO 8601 with explicit `+07:00` offset (`YYYY-MM-DDTHH:MM:SS+07:00`), ensuring that all API responses (`DetectResultResponse`, `DetectionHistoryResponse`, `AlertResponse`) are timezone-aware.
+- **Daily Stats Midnight Window (`get_thailand_today_start`)**: `GET /api/v1/detection/stats` queries records starting at 00:00:00 Thailand time, preventing UTC offsets from desynchronizing daily counts.
+- **Email Alerts (`email_service.py`)**: Sends stranger alert emails formatted with `format_thailand_time(include_thai_label=True)` (e.g. `30/10/2026 18:45:00 (เวลาไทย)`).
+- **Frontend Real-time HUD Clock & Displays**:
+  - Live HUD clock in [DetectionPage.jsx](frontend/src/pages/detection/DetectionPage.jsx) renders `currentTime` with `timeZone: "Asia/Bangkok"` and `ICT (ไทย)` badge.
+  - All history tables, alert feeds, toasts, desktop notifications, and training logs format timestamps using `toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok" })` and `toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })`.
 
 ---
 

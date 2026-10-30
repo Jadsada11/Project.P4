@@ -1,7 +1,7 @@
-from datetime import datetime, timezone
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+from app.core.time_utils import get_thailand_naive_now
 
 
 class Alert(Base):
@@ -36,7 +36,7 @@ class Alert(Base):
     thumbnail = Column(String, default="", nullable=False)
     is_read = Column(Boolean, default=False, index=True, nullable=False)
     created_at = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), index=True, nullable=False
+        DateTime, default=get_thailand_naive_now, index=True, nullable=False
     )
 
     # Relationships

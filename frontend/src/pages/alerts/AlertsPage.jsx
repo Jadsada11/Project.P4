@@ -56,10 +56,12 @@ export default function AlertsPage() {
             : a.thumbnail
             ? `http://localhost:8000${a.thumbnail}`
             : "",
-          timestamp: new Date(a.created_at).toLocaleDateString("th-TH"),
+          timestamp: new Date(a.created_at).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" }),
           timeRaw: new Date(a.created_at).toLocaleTimeString("th-TH", {
+            timeZone: "Asia/Bangkok",
             hour: "2-digit",
             minute: "2-digit",
+            second: "2-digit",
           }),
         }));
         setAlerts(formatted);

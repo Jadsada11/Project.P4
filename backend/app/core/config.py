@@ -44,8 +44,8 @@ class Settings(BaseSettings):
     EMAIL_ALERT_CATEGORIES: Union[List[str], str] = ["stranger"]
 
     # Face Recognition Metric Matching Threshold (MobileNetV3 576-dim L2 cosine similarity)
-    # Empirically calibrated: same person >= 0.80 - 0.95, different/strangers <= 0.68
-    FACE_MATCH_THRESHOLD: float = 0.75
+    # Empirically calibrated: same person >= 0.73 - 0.95, different/strangers <= 0.684
+    FACE_MATCH_THRESHOLD: float = 0.70
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod

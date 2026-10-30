@@ -3,6 +3,7 @@ import io
 import time
 import asyncio
 from datetime import datetime, timezone, date
+from app.core.time_utils import get_thailand_now, get_thailand_today_start
 from typing import List, Optional
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
@@ -41,7 +42,7 @@ def get_detection_stats(db: Session = Depends(get_db)):
     - คนแปลกหน้า (stranger)
     - ยอดรวมทั้งหมดและจำนวนการแจ้งเตือน
     """
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = get_thailand_today_start()
 
     total_today = (
         db.query(DetectionHistory)
@@ -359,7 +360,7 @@ async def detect_image(
     return DetectResultResponse(
         success=True,
         camera_id=camera_id,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=get_thailand_now(),
         detections_count=len(items),
         detections=items,
     )
@@ -431,7 +432,7 @@ async def detect_from_esp32(
         return DetectResultResponse(
             success=False,
             camera_id=f"ESP32 ({clean_ip})",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=get_thailand_now(),
             detections_count=0,
             detections=[],
         )
@@ -453,7 +454,7 @@ async def detect_from_esp32(
     return DetectResultResponse(
         success=True,
         camera_id=f"ESP32 ({clean_ip})",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=get_thailand_now(),
         detections_count=len(items),
         detections=items,
     )

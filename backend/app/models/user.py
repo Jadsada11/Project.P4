@@ -1,7 +1,7 @@
-from datetime import datetime, timezone
 from sqlalchemy import Boolean, Column, DateTime, Integer, String
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+from app.core.time_utils import get_thailand_naive_now
 
 
 class User(Base):
@@ -14,12 +14,12 @@ class User(Base):
     role = Column(String, default="Operator", nullable=False)  # Operator, Engineer, Admin
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=get_thailand_naive_now, nullable=False
     )
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=get_thailand_naive_now,
+        onupdate=get_thailand_naive_now,
         nullable=False,
     )
 

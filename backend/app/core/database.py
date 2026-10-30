@@ -50,9 +50,10 @@ def seed_initial_data(db) -> None:
     from app.models.person import Person
     from app.models.detection import DetectionHistory
     from app.models.alert import Alert
+    from app.core.time_utils import get_thailand_naive_now
 
     if db.query(Person).count() == 0:
-        now = datetime.now(timezone.utc)
+        now = get_thailand_naive_now()
 
         # 1. คนในบ้าน (Household)
         p1 = Person(

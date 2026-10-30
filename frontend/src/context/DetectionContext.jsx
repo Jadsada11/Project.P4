@@ -378,7 +378,12 @@ export function DetectionProvider({ children }) {
             personName: primary.person_name,
             confidence: primary.confidence,
             isStranger: alertCategory === "stranger" || hasStranger,
-            time: new Date().toLocaleTimeString("th-TH"),
+            time: new Date().toLocaleTimeString("th-TH", {
+              timeZone: "Asia/Bangkok",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            }),
             timestamp: Date.now(),
           };
 
@@ -419,7 +424,12 @@ export function DetectionProvider({ children }) {
             title: latest.title || (alertCat === "stranger" ? "⚠️ ตรวจพบคนแปลกหน้า" : "📦 ตรวจพบคนส่งของ"),
             message: latest.message || "ตรวจพบบุคคลบริเวณหน้าบ้าน และบันทึกเข้าระบบความปลอดภัยแล้ว",
             isStranger: alertCat === "stranger",
-            time: new Date(latest.created_at).toLocaleTimeString("th-TH"),
+            time: new Date(latest.created_at).toLocaleTimeString("th-TH", {
+              timeZone: "Asia/Bangkok",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            }),
             timestamp: Date.now(),
           };
 

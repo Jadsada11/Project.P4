@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
+from app.core.time_utils import serialize_thailand_datetime
 
 
 class AlertBase(BaseModel):
@@ -16,7 +17,6 @@ class AlertBase(BaseModel):
     is_read: bool = False
 
 
-
 class AlertCreate(AlertBase):
     pass
 
@@ -28,6 +28,10 @@ class AlertUpdateRead(BaseModel):
 class AlertResponse(AlertBase):
     id: int
     created_at: datetime
+
+    @field_serializer("created_at")
+    def serialize_created_at(self, dt: datetime, _info):
+        return serialize_thailand_datetime(dt)
 
     class Config:
         from_attributes = True

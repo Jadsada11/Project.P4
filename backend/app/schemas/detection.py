@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
+from app.core.time_utils import serialize_thailand_datetime
 
 
 class DetectionItem(BaseModel):
@@ -21,6 +22,10 @@ class DetectResultResponse(BaseModel):
     detections_count: int = 0
     detections: List[DetectionItem] = Field(default_factory=list)
     snapshot_url: Optional[str] = None
+
+    @field_serializer("timestamp")
+    def serialize_timestamp(self, dt: datetime, _info):
+        return serialize_thailand_datetime(dt)
 
 
 class DetectESP32Request(BaseModel):
@@ -44,8 +49,11 @@ class DetectionHistoryResponse(BaseModel):
     alert_triggered: bool
     timestamp: datetime
 
-    class Config:
+    @field_serializer("timestamp")
+    def serialize_timestamp(self, dt: datetime, _info):
+        return serialize_thailand_datetime(dt)
 
+    class Config:
         from_attributes = True
 
 

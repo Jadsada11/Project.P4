@@ -436,7 +436,7 @@ SMTP_USER="thanakornnillamai@gmail.com"
 SMTP_PASSWORD="your-google-app-password"
 EMAIL_ALERT_COOLDOWN_SECONDS=180
 EMAIL_ALERT_CATEGORIES="stranger"
-FACE_MATCH_THRESHOLD=0.75
+FACE_MATCH_THRESHOLD=0.70
 ```
 
 ### 5.2 คำสั่งเปิดเซิร์ฟเวอร์
@@ -451,7 +451,27 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 ---
 
-## 6. ตัวอย่างคำสั่งทดสอบผ่าน cURL (cURL Testing)
+## 6. การจัดการเวลาประเทศไทย (Thailand Timezone Synchronization — UTC+7 / Asia/Bangkok)
+
+ระบบจัดการเวลาให้ตรงกับประเทศไทย (UTC+7 / Asia/Bangkok / ICT) อย่างสมบูรณ์แบบทั้งระบบ:
+1. **โมดูลส่วนกลาง `app.core.time_utils`**:
+   - `THAILAND_TZ`: Timezone `Asia/Bangkok` (UTC+7)
+   - `get_thailand_now()`: ดึงเวลาปัจจุบันแบบ Timezone-aware (`+07:00`)
+   - `get_thailand_naive_now()`: ดึงเวลาปัจจุบันแบบ Naive สำหรับบันทึกลงคอลัมน์ DateTime ของ SQLite (`vigil.db`) เพื่อให้เวลาในฐานข้อมูลตรงกับเวลาไทยจริง (`YYYY-MM-DD HH:MM:SS`)
+   - `get_thailand_today_start()`: ดึงเวลาเริ่มต้นวันใหม่ (00:00:00) ตามเวลาไทย สำหรับคำนวณสถิติประจำวัน
+   - `format_thailand_time(dt, fmt, include_thai_label)`: ฟอร์แมตเวลาไทยแบบปลอดภัยบน Windows ป้องกันปัญหา UnicodeEncodeError ใน `strftime`
+   - `serialize_thailand_datetime(dt)`: แปลงเวลาเป็น ISO 8601 string กำกับ Offset `+07:00` ชัดเจน
+2. **Pydantic Model Serializers**:
+   - `DetectResultResponse` และ `DetectionHistoryResponse`: serialize ฟิลด์ `timestamp` กำกับ `+07:00`
+   - `AlertResponse`: serialize ฟิลด์ `created_at` กำกับ `+07:00`
+3. **Daily Stats Window**:
+   - `GET /api/v1/detection/stats` ใช้ `today_start = get_thailand_today_start()` (00:00:00 ประเทศไทย) ทำให้ยอดสรุปรายวันไม่ถูกรีเซ็ตผิดเวลา
+4. **Email Alerts (`email_service.py`)**:
+   - ระบบส่งอีเมลแจ้งเตือนคนแปลกหน้าใช้ `format_thailand_time(include_thai_label=True)` แสดงผลชัดเจน เช่น `30/10/2026 18:45:00 (เวลาไทย)`
+
+---
+
+## 7. ตัวอย่างคำสั่งทดสอบผ่าน cURL (cURL Testing)
 
 ```bash
 # 1. Health Check

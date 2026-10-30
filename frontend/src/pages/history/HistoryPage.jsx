@@ -100,8 +100,9 @@ export default function HistoryPage() {
           cameraId: item.camera_id || "cam-1",
           location: item.location || "หน้าบ้าน (Main Entrance)",
           alertTriggered: item.alert_triggered,
-          dateStr: new Date(item.timestamp).toLocaleDateString("th-TH"),
+          dateStr: new Date(item.timestamp).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" }),
           timeStr: new Date(item.timestamp).toLocaleTimeString("th-TH", {
+            timeZone: "Asia/Bangkok",
             hour: "2-digit",
             minute: "2-digit",
             second: "2-digit",

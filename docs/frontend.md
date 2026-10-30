@@ -187,3 +187,18 @@ cmd.exe /c "npm run dev"
 # ตรวจสอบการคอมไพล์สำหรับ Production
 cmd.exe /c "npm run build"
 ```
+
+---
+
+## 7. การแสดงผลเวลาตามเวลาประเทศไทย (Thailand Timezone Displays — UTC+7 / Asia/Bangkok)
+
+ทุกหน้าและทุกคอมโพเนนต์แสดงผลวันและเวลาตามเวลาประเทศไทยอย่างแม่นยำ:
+1. **นาฬิกา Real-time HUD บนกล้องสด (`DetectionPage.jsx`)**:
+   - อัปเดตทุก 1 วินาที โดยระบุ `timeZone: "Asia/Bangkok"` และแสดงป้ายกำกับ `ICT (ไทย)` บนหน้าจอกล้องสตรีมสด
+2. **ตารางประวัติผู้มาเยือน (`HistoryPage.jsx` และ `DetectionPage.jsx`)**:
+   - จัดรูปแบบเวลา `item.timestamp` ด้วย `toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok", hour: "2-digit", minute: "2-digit", second: "2-digit" })`
+   - จัดรูปแบบวันที่ด้วย `toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })`
+3. **ฟีดการแจ้งเตือน (`AlertsPage.jsx`, `DetectionContext.jsx`, `GlobalAlertToast.jsx`)**:
+   - บันทึกและแสดงเวลาแจ้งเตือนตาม `Asia/Bangkok` เพื่อให้เวลาใน Toast, หน้าต่าง Alerts และการแจ้งเตือน Desktop Notification ตรงกับเวลานาฬิกาไทย 100%
+4. **หน้าจอเทรนโมเดล AI (`TrainingPage.jsx`)**:
+   - สถิติ `last_trained` และบันทึก Log ในคอนโซลจำลองแสดงเวลาไทยด้วย `timeZone: "Asia/Bangkok"`

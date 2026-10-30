@@ -8,6 +8,7 @@ from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from datetime import datetime
 from typing import Optional, Dict, Any
+from app.core.time_utils import format_thailand_time
 
 from app.core.config import settings
 
@@ -44,7 +45,7 @@ def send_test_email(recipient: Optional[str] = None) -> Dict[str, Any]:
     msg["From"] = f"Vigil AI Security <{sender}>"
     msg["To"] = target_email
 
-    now_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    now_str = format_thailand_time()
 
     html_content = f"""
     <!DOCTYPE html>
@@ -287,7 +288,7 @@ def trigger_email_alert_async(
 
         _last_sent_timestamps[cooldown_key] = now
 
-    detection_time_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    detection_time_str = format_thailand_time(include_thai_label=True)
 
 
     # รันใน Thread แยก เพื่อไม่ให้กระทบประสิทธิภาพของลูปตรวจจับ YOLO

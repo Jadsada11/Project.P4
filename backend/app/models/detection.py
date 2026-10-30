@@ -1,7 +1,7 @@
-from datetime import datetime, timezone
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+from app.core.time_utils import get_thailand_naive_now
 
 
 class DetectionHistory(Base):
@@ -30,7 +30,7 @@ class DetectionHistory(Base):
     location = Column(String, default="หน้าบ้าน (Main Entrance)", nullable=False)
     alert_triggered = Column(Boolean, default=False, nullable=False)
     timestamp = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), index=True, nullable=False
+        DateTime, default=get_thailand_naive_now, index=True, nullable=False
     )
 
     # Relationships

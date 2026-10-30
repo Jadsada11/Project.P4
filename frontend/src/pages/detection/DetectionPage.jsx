@@ -171,12 +171,13 @@ export default function DetectionPage() {
   const [isTestingEsp32, setIsTestingEsp32] = useState(false);
   const [esp32TestResult, setEsp32TestResult] = useState(null);
 
-  // Real-time Clock
+  // Real-time Clock (Thailand Timezone: Asia/Bangkok / UTC+7)
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
       setCurrentTime(
-        now.toLocaleTimeString("en-US", {
+        now.toLocaleTimeString("th-TH", {
+          timeZone: "Asia/Bangkok",
           hour12: false,
           hour: "2-digit",
           minute: "2-digit",
@@ -201,8 +202,10 @@ export default function DetectionPage() {
           role: item.category,
           confidence: item.confidence,
           time: new Date(item.timestamp).toLocaleTimeString("th-TH", {
+            timeZone: "Asia/Bangkok",
             hour: "2-digit",
             minute: "2-digit",
+            second: "2-digit",
           }),
           status: item.category === "stranger" ? "UNKNOWN" : "KNOWN",
           photoUrl: item.snapshot_path?.startsWith("http")
@@ -402,7 +405,7 @@ export default function DetectionPage() {
       category: record.role === "delivery" ? "delivery" : "household",
       role: record.role === "delivery" ? "Delivery" : "Family",
       department: record.role === "delivery" ? "ขนส่งพัสดุ" : "ครอบครัว",
-      notes: `ระบุตัวตนจากภาพถ่ายกล้องสด บันทึกเมื่อ ${record.time || new Date().toLocaleTimeString("th-TH")}`,
+      notes: `ระบุตัวตนจากภาพถ่ายกล้องสด บันทึกเมื่อ ${record.time || new Date().toLocaleTimeString("th-TH", { timeZone: "Asia/Bangkok" })}`,
     });
     setIdentifySuccessMessage("");
     setIsIdentifyModalOpen(true);
@@ -981,9 +984,10 @@ export default function DetectionPage() {
                   <span className="w-2 h-2 rounded-full bg-[#c62828] animate-pulse" />
                   <span>AI REC</span>
                 </div>
-                <div className="flex items-center gap-1 text-white/80">
+                <div className="flex items-center gap-1.5 text-white/90">
                   <Clock className="w-3.5 h-3.5 text-[#f5c9a8]" />
-                  <span>{currentTime || "10:42:18"}</span>
+                  <span className="font-bold">{currentTime || "--:--:--"}</span>
+                  <span className="text-[9px] text-[#f5c9a8] font-bold px-1.5 py-0.5 rounded bg-white/10 tracking-tight">ICT (ไทย)</span>
                 </div>
                 <span className="text-[#26a69a] font-semibold">
                   {streamMode === "live" ? "VGA (640x480)" : "30 FPS"}
@@ -1003,7 +1007,7 @@ export default function DetectionPage() {
               {isAutoDetect && (
                 <div className="absolute top-4 inset-x-0 mx-auto w-max bg-black/80 backdrop-blur-md px-3.5 py-1 rounded-full border border-[#4ade80]/40 text-white text-[11px] font-bold flex items-center gap-2 z-10 shadow-lg animate-in fade-in">
                   <span className="w-2 h-2 rounded-full bg-[#4ade80] animate-pulse" />
-                  <span>AI AUTO SNAPSHOT (5s)</span>
+                  <span>AI AUTO SCAN (5s)</span>
                   {isDetecting && <RefreshCw className="w-3 h-3 animate-spin text-[#f5c9a8]" />}
                 </div>
               )}

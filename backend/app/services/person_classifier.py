@@ -5,6 +5,7 @@ import uuid
 import logging
 import threading
 from datetime import datetime, timezone
+from app.core.time_utils import get_thailand_naive_now, get_thailand_now, format_thailand_time
 from typing import List, Dict, Any, Optional
 import numpy as np
 from PIL import Image
@@ -86,6 +87,10 @@ def classify_and_record(
 
     Saves detection history and triggers alerts if appropriate.
     """
+    # หากไม่พบใบหน้าคนในภาพ -> ไม่ทำการบันทึก Snapshot และไม่บันทึกประวัติใดๆ
+    if not detections:
+        return []
+
     results = []
     registered_persons = db.query(Person).filter(Person.is_active == True).all()
 
@@ -94,17 +99,24 @@ def classify_and_record(
     delivery_members = [p for p in registered_persons if p.category == "delivery"]
 
     h, w = image_np.shape[:2]
-    now = datetime.now(timezone.utc)
+    now = get_thailand_naive_now()
 
-    # Save full snapshot image
-    snapshot_filename = f"snap_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
-    snapshot_full_path = os.path.join(SNAPSHOT_DIR, snapshot_filename)
-    try:
-        Image.fromarray(image_np).save(snapshot_full_path, format="JPEG", quality=85)
-        snapshot_url = f"/data/snapshots/{snapshot_filename}"
-    except Exception as e:
-        logger.error(f"Failed to save snapshot: {e}")
-        snapshot_url = ""
+    # Lazy Snapshot Saver: บันทึกภาพลงดิสก์ data/snapshots/ เฉพาะเมื่อตรวจพบคนแปลกหน้า / บุคคลที่ยังไม่ได้เทรน AI
+    cached_snapshot_url: Optional[str] = None
+
+    def get_or_create_snapshot_url() -> str:
+        nonlocal cached_snapshot_url
+        if cached_snapshot_url is not None:
+            return cached_snapshot_url
+        try:
+            snapshot_filename = f"snap_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
+            snapshot_full_path = os.path.join(SNAPSHOT_DIR, snapshot_filename)
+            Image.fromarray(image_np).save(snapshot_full_path, format="JPEG", quality=85)
+            cached_snapshot_url = f"/data/snapshots/{snapshot_filename}"
+        except Exception as e:
+            logger.error(f"Failed to save snapshot: {e}")
+            cached_snapshot_url = ""
+        return cached_snapshot_url
 
     for idx, det in enumerate(detections):
         box = det["box"]  # [x1, y1, x2, y2]
@@ -144,7 +156,7 @@ def classify_and_record(
         else:
             # 1. เปรียบเทียบ Deep Learning Face Embedding กับฐานข้อมูลบุคคลที่เทรนไว้
             is_face_crop = det.get("is_real_face", True) or det.get("class_name") == "face"
-            match_thresh = getattr(settings, "FACE_MATCH_THRESHOLD", 0.75)
+            match_thresh = getattr(settings, "FACE_MATCH_THRESHOLD", 0.70)
             face_match, match_score = match_face_embedding(
                 crop,
                 threshold=match_thresh,
@@ -182,6 +194,15 @@ def classify_and_record(
                 role = "Stranger"
                 matched_person = None
 
+        # กำหนดภาพ Snapshot ตามเงื่อนไข:
+        # - บุคคลที่เทรน AI ไปแล้ว (matched_person != None และ category != "stranger") -> ไม่ต้อง Snapshot เพิ่มอีก ให้ใช้ photo_url เดิมที่เคยเทรนไว้
+        # - บุคคลที่ยังไม่ได้เทรน AI / คนแปลกหน้า (stranger) -> บันทึกภาพ Snapshot เฉพาะกรณีนี้
+        is_trained_identity = (matched_person is not None and category != "stranger")
+        if is_trained_identity:
+            item_snapshot_path = matched_person.photo_url or ""
+        else:
+            item_snapshot_path = get_or_create_snapshot_url()
+
         # Determine Alert triggering rules
         alert_created = False
         alert_msg = None
@@ -194,7 +215,7 @@ def classify_and_record(
             category=category,
             confidence=confidence,
             bounding_box=json.dumps([x1, y1, x2, y2]),
-            snapshot_path=snapshot_url or (matched_person.photo_url if matched_person else ""),
+            snapshot_path=item_snapshot_path,
             camera_id=camera_id,
             location=location,
             alert_triggered=False,
@@ -205,7 +226,6 @@ def classify_and_record(
 
         # 2. ตรวจสอบการสร้างการแจ้งเตือน (Alerts) พร้อมระบบ Cooldown 3 นาที (180 วินาที)
         can_alert = should_trigger_alert(category, person_name, matched_person.id if matched_person else None)
-
 
         if can_alert:
             assigned_user_id = matched_person.user_id if (matched_person and matched_person.user_id) else 1
@@ -221,7 +241,7 @@ def classify_and_record(
                     detection_id=detection_record.id,
                     person_id=matched_person.id if matched_person else None,
                     user_id=assigned_user_id,
-                    thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                    thumbnail=item_snapshot_path,
                     is_read=False,
                     created_at=now,
                 )
@@ -240,7 +260,7 @@ def classify_and_record(
                     detection_id=detection_record.id,
                     person_id=matched_person.id if matched_person else None,
                     user_id=assigned_user_id,
-                    thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                    thumbnail=item_snapshot_path,
                     is_read=False,
                     created_at=now,
                 )
@@ -259,7 +279,7 @@ def classify_and_record(
                     detection_id=detection_record.id,
                     person_id=matched_person.id if matched_person else None,
                     user_id=assigned_user_id,
-                    thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                    thumbnail=item_snapshot_path,
                     is_read=False,
                     created_at=now,
                 )
@@ -278,7 +298,7 @@ def classify_and_record(
                     detection_id=detection_record.id,
                     person_id=matched_person.id if matched_person else None,
                     user_id=assigned_user_id,
-                    thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                    thumbnail=item_snapshot_path,
                     is_read=False,
                     created_at=now,
                 )
@@ -297,7 +317,7 @@ def classify_and_record(
                     detection_id=detection_record.id,
                     person_id=matched_person.id if matched_person else None,
                     user_id=assigned_user_id,
-                    thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                    thumbnail=item_snapshot_path,
                     is_read=False,
                     created_at=now,
                 )
@@ -316,14 +336,12 @@ def classify_and_record(
                     detection_id=detection_record.id,
                     person_id=matched_person.id if matched_person else None,
                     user_id=assigned_user_id,
-                    thumbnail=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                    thumbnail=item_snapshot_path,
                     is_read=False,
                     created_at=now,
                 )
                 db.add(alert)
                 detection_record.alert_triggered = True
-
-
 
             # 3. ส่งการแจ้งเตือนทางอีเมลอัตโนมัติ (Gmail SMTP) เฉพาะกรณีตรวจพบคนแปลกหน้า (Stranger) แบบ Non-blocking
             if category == "stranger":
@@ -332,11 +350,11 @@ def classify_and_record(
                     person_name=person_name,
                     location=location,
                     confidence=confidence,
-                    snapshot_rel_path=snapshot_url or (matched_person.photo_url if matched_person else ""),
+                    snapshot_rel_path=item_snapshot_path,
                 )
         else:
             alert_created = False
-            alert_msg = f"{person_name} (ตรวจพบต่อเนื่อง - บันทึกภาพ Snapshot แต่หน่วงแจ้งเตือนตามรอบ 3 นาที)"
+            alert_msg = f"{person_name} (ตรวจพบต่อเนื่อง - หน่วงแจ้งเตือนตามรอบ 3 นาที)"
 
 
         results.append({

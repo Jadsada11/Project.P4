@@ -7,6 +7,7 @@ import uuid
 import shutil
 import logging
 from datetime import datetime, timezone
+from app.core.time_utils import get_thailand_now, format_thailand_time
 from typing import List, Dict, Any, Optional, Tuple, Union
 
 import cv2
@@ -72,7 +73,7 @@ def load_embeddings_db() -> Dict[str, Any]:
     if not os.path.exists(EMBEDDINGS_FILE):
         default_db = {
             "version": "1.0",
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": get_thailand_now().isoformat(),
             "persons": {},
         }
         save_embeddings_db(default_db)
@@ -83,13 +84,13 @@ def load_embeddings_db() -> Dict[str, Any]:
             return json.load(f)
     except Exception as e:
         logger.error(f"Failed to read {EMBEDDINGS_FILE}: {e}")
-        return {"version": "1.0", "updated_at": datetime.now(timezone.utc).isoformat(), "persons": {}}
+        return {"version": "1.0", "updated_at": get_thailand_now().isoformat(), "persons": {}}
 
 
 def save_embeddings_db(data: Dict[str, Any]):
     """บันทึกฐานข้อมูล Face Embeddings ลง JSON file"""
     try:
-        data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        data["updated_at"] = get_thailand_now().isoformat()
         with open(EMBEDDINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
@@ -114,16 +115,16 @@ def load_training_status() -> Dict[str, Any]:
     return {
         "status": "ready",
         "model_name": "MobileNetV3 + Cosine Metric Learning",
-        "last_trained": datetime.now(timezone.utc).isoformat(),
+        "last_trained": get_thailand_now().isoformat(),
         "total_persons": persons_count,
         "total_samples": total_samples,
         "average_accuracy": 98.2,
         "loss": 0.018,
         "inference_speed_ms": 14.2,
         "logs": [
-            f"[{datetime.now().strftime('%H:%M:%S')}] [READY] Face recognition backbone active on CPU / PyTorch",
-            f"[{datetime.now().strftime('%H:%M:%S')}] [DATABASE] {persons_count} registered identity vectors indexed in memory",
-            f"[{datetime.now().strftime('%H:%M:%S')}] [SYSTEM] Pipeline ready for Real-time ESP32 & Web camera matching",
+            f"[{format_thailand_time(fmt='%H:%M:%S')}] [READY] Face recognition backbone active on CPU / PyTorch",
+            f"[{format_thailand_time(fmt='%H:%M:%S')}] [DATABASE] {persons_count} registered identity vectors indexed in memory",
+            f"[{format_thailand_time(fmt='%H:%M:%S')}] [SYSTEM] Pipeline ready for Real-time ESP32 & Web camera matching",
         ],
     }
 
@@ -589,7 +590,7 @@ def save_person_embeddings(
         "embedding": final_embedding,
         "exemplars": exemplars,
         "accuracy": accuracy,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": get_thailand_now().isoformat(),
     }
 
     save_embeddings_db(db)
@@ -599,13 +600,13 @@ def save_person_embeddings(
 
     # บันทึกลง Log สถานะการเทรน
     status_data = load_training_status()
-    now_str = datetime.now().strftime("%H:%M:%S")
+    now_str = format_thailand_time(fmt="%H:%M:%S")
     status_data["logs"].append(
         f"[{now_str}] [ENROLL] #{person_id} {name} ({category}): Enrolled {len(image_sources)} samples, consistency {accuracy}%"
     )
     status_data["total_persons"] = len(db["persons"])
     status_data["total_samples"] = sum(p.get("sample_count", 1) for p in db["persons"].values())
-    status_data["last_trained"] = datetime.now(timezone.utc).isoformat()
+    status_data["last_trained"] = get_thailand_now().isoformat()
     save_training_status(status_data)
 
     return True
@@ -650,7 +651,7 @@ def add_person_image_embedding(
                 final_emb = updated_vec.tolist()
             old_data["embedding"] = final_emb
             old_data["sample_count"] = old_count + 1
-            old_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            old_data["updated_at"] = get_thailand_now().isoformat()
             old_data["name"] = name
             old_data["category"] = category
             if role:
@@ -702,7 +703,7 @@ def retrain_all_registered_persons(db: Session) -> Dict[str, Any]:
     start_time = time.time()
     active_persons = db.query(Person).filter(Person.is_active == True).all()
 
-    now_str = datetime.now().strftime("%H:%M:%S")
+    now_str = format_thailand_time(fmt="%H:%M:%S")
     logs = [
         f"[{now_str}] [TRAINER] Starting Full Face Metric Retraining Pipeline...",
         f"[{now_str}] [MODEL] Initializing MobileNetV3-Small (576-dim L2 Metric Extractor)...",
@@ -714,7 +715,7 @@ def retrain_all_registered_persons(db: Session) -> Dict[str, Any]:
     consistency_scores = []
     updated_embeddings_db = {
         "version": "1.0",
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": get_thailand_now().isoformat(),
         "persons": {},
     }
 
@@ -788,7 +789,7 @@ def retrain_all_registered_persons(db: Session) -> Dict[str, Any]:
             "embedding": final_embedding,
             "exemplars": exemplars,
             "accuracy": person_acc,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": get_thailand_now().isoformat(),
         }
 
         trained_count += 1
@@ -804,13 +805,13 @@ def retrain_all_registered_persons(db: Session) -> Dict[str, Any]:
     avg_accuracy = round(float(np.mean(consistency_scores)), 1) if consistency_scores else 98.4
     loss_val = round(max(0.008, 1.0 - (avg_accuracy / 100.0)), 4)
 
-    logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] [CENTROID] Normalized {trained_count} person identity vectors into L2 space.")
-    logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] [COMPLETE] Retraining finished in {elapsed_ms}ms. Overall Accuracy: {avg_accuracy}%.")
+    logs.append(f"[{format_thailand_time(fmt='%H:%M:%S')}] [CENTROID] Normalized {trained_count} person identity vectors into L2 space.")
+    logs.append(f"[{format_thailand_time(fmt='%H:%M:%S')}] [COMPLETE] Retraining finished in {elapsed_ms}ms. Overall Accuracy: {avg_accuracy}%.")
 
     training_result = {
         "status": "ready",
         "model_name": "MobileNetV3 + Cosine Metric Learning",
-        "last_trained": datetime.now(timezone.utc).isoformat(),
+        "last_trained": get_thailand_now().isoformat(),
         "total_persons": trained_count,
         "total_samples": total_images_processed,
         "average_accuracy": avg_accuracy,
@@ -860,7 +861,7 @@ def match_face_embedding(
     5. ส่งคืนบุคคลที่มีความคล้ายคลึงสูงสุดหาก score >= threshold
     6. ส่งคืน (None, best_score) หากไม่มีบุคคลใดตรงกับ threshold (คนแปลกหน้า / Stranger)
     """
-    effective_threshold = threshold if threshold is not None else getattr(settings, "FACE_MATCH_THRESHOLD", 0.75)
+    effective_threshold = threshold if threshold is not None else getattr(settings, "FACE_MATCH_THRESHOLD", 0.70)
 
     query_pil = None
     # ขั้นตอนที่ 1: ตรวจสอบและทำ Canonical Landmark Alignment จาก full_image
