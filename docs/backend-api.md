@@ -429,6 +429,14 @@ ALGORITHM="HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
 DATABASE_URL="sqlite:///./data/vigil.db"
 BACKEND_CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
+SMTP_ENABLED=true
+SMTP_SERVER="smtp.gmail.com"
+SMTP_PORT=465
+SMTP_USER="thanakornnillamai@gmail.com"
+SMTP_PASSWORD="your-google-app-password"
+EMAIL_ALERT_COOLDOWN_SECONDS=180
+EMAIL_ALERT_CATEGORIES="stranger"
+FACE_MATCH_THRESHOLD=0.75
 ```
 
 ### 5.2 คำสั่งเปิดเซิร์ฟเวอร์

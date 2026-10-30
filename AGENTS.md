@@ -94,8 +94,8 @@ In [DetectionPage.jsx](frontend/src/pages/detection/DetectionPage.jsx), the time
 ### 4.3 Database Foreign Key Safety
 When deleting detection history records in [detection.py](backend/app/api/v1/endpoints/detection.py), always unlink `alerts.detection_id = None` prior to executing the delete statement. This avoids SQLite FK constraint violations while preserving security alert logs.
 
-### 4.4 Face Embeddings & Centroid Normalization
-In [face_embedding_service.py](backend/app/services/face_embedding_service.py), all face vectors MUST be 576-dimensional and $L_2$-normalized (`norm == 1.0`). Centroid calculation must normalize after computing the sum vector. The cosine similarity matching threshold is calibrated at `0.58`.
+### 4.4 Face Embeddings, Exemplars & Centroid Normalization
+In [face_embedding_service.py](backend/app/services/face_embedding_service.py), all face vectors MUST be 576-dimensional and $L_2$-normalized (`norm == 1.0`). Centroid calculation normalizes after computing the sum vector. Multi-template exemplar vectors (up to 6 diverse pose/angle templates) are stored alongside the centroid. The cosine similarity matching threshold is calibrated at `0.75` (`FACE_MATCH_THRESHOLD = 0.75`, cleanly separating strangers at $\le 0.68$ from recognized identities at $\ge 0.80 - 0.95$). Untrained individuals are strictly classified as `stranger`.
 
 ### 4.5 Real-Time Badge Sync
 Whenever alerts are read or deleted, always dispatch `window.dispatchEvent(new CustomEvent("vigil-alerts-updated"))` so that the Navbar unread badge updates immediately without page reloads.

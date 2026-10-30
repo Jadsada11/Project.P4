@@ -117,6 +117,11 @@ def _send_alert_worker(
         logger.debug("SMTP is disabled in settings. Skipping email alert.")
         return
 
+    # ส่งการแจ้งเตือนทางอีเมลเฉพาะคนแปลกหน้า (Stranger) เท่านั้น
+    if category.lower() != "stranger":
+        logger.debug(f"[Email Alert] Category '{category}' ignored. Email alerts are strictly sent for strangers.")
+        return
+
     sender = settings.SMTP_USER
     password = _clean_password(settings.SMTP_PASSWORD)
     recipient = settings.NOTIFICATION_RECIPIENT_EMAIL or sender
@@ -125,39 +130,10 @@ def _send_alert_worker(
         logger.warning("SMTP credentials not configured. Skipping email.")
         return
 
-    is_delivery = (category == "delivery")
-    is_stranger = (category == "stranger")
-
-    if is_delivery:
-        subject = f"📦 [Vigil Alert] มีคนมาส่งของ: {person_name} ({location})"
-        badge_color = "#f59e0b"
-        header_title = "📦 มีคนมาส่งพัสดุ / ไรเดอร์มาถึงหน้าบ้าน"
-        badge_text = "DELIVERY (คนส่งพัสดุ)"
-    elif is_stranger:
-        subject = f"⚠️ [Vigil Alert] ตรวจพบบุคคลแปลกหน้า: {person_name} ({location})"
-        badge_color = "#ef4444"
-        header_title = "⚠️ ตรวจพบบุคคลแปลกหน้าบริเวณทางเข้า"
-        badge_text = "STRANGER (คนแปลกหน้า)"
-    elif category == "neighbor":
-        subject = f"🩵 [Vigil Alert] ตรวจพบเพื่อนบ้าน: {person_name} ({location})"
-        badge_color = "#00838f"
-        header_title = "🩵 ตรวจพบเพื่อนบ้านเข้าสู่บริเวณ"
-        badge_text = "NEIGHBOR (เพื่อนบ้าน)"
-    elif category == "friend":
-        subject = f"💜 [Vigil Alert] ตรวจพบเพื่อน: {person_name} ({location})"
-        badge_color = "#7b1fa2"
-        header_title = "💜 ตรวจพบเพื่อนสนิท/ผู้มาเยือน"
-        badge_text = "FRIEND (เพื่อน/แขก)"
-    elif category == "other":
-        subject = f"⚪ [Vigil Alert] ตรวจพบบุคคลที่บันทึกไว้: {person_name} ({location})"
-        badge_color = "#616161"
-        header_title = "⚪ ตรวจพบบุคคลทั่วไปที่ลงทะเบียนไว้"
-        badge_text = "OTHER (บุคคลอื่นๆ)"
-    else:
-        subject = f"🟢 [Vigil Alert] ตรวจพบสมาชิกในบ้าน: {person_name} ({location})"
-        badge_color = "#10b981"
-        header_title = "🟢 ตรวจพบสมาชิกในบ้านเข้าสู่บริเวณ"
-        badge_text = "HOUSEHOLD (สมาชิกในบ้าน)"
+    subject = f"⚠️ [Vigil Alert] ตรวจพบบุคคลแปลกหน้า: {person_name} ({location})"
+    badge_color = "#ef4444"
+    header_title = "⚠️ ตรวจพบบุคคลแปลกหน้าบริเวณทางเข้า"
+    badge_text = "STRANGER (คนแปลกหน้า)"
 
     msg = MIMEMultipart("related")
     msg["Subject"] = subject

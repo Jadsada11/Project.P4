@@ -38,7 +38,7 @@ def get_yunet_detector():
                     model=YUNET_MODEL_PATH,
                     config="",
                     input_size=(640, 480),
-                    score_threshold=0.55,
+                    score_threshold=0.45,
                     nms_threshold=0.3,
                     top_k=5000,
                 )
@@ -127,27 +127,29 @@ def is_valid_human_face_geometry(landmarks: np.ndarray, box: List[int], img_w: i
     # 3. Vertical feature order: Eyes must be above Nose, and Nose above Mouth
     eyes_y = (ry + ly) / 2.0
     mouth_y = (rmy + lmy) / 2.0
-    if not (eyes_y - 4.0 <= ny <= mouth_y + 4.0):
-        return False, f"invalid_vertical_order (eyes_y={eyes_y:.1f}, nose_y={ny:.1f}, mouth_y={mouth_y:.1f})"
-
-    # 4. Both mouth corners must be below nose
-    if rmy < ny - 2.0 or lmy < ny - 2.0:
-        return False, "mouth_above_nose"
-
-    # 5. Face bounding box aspect ratio
     x1, y1, x2, y2 = box
     fw = max(1, x2 - x1)
     fh = max(1, y2 - y1)
+    margin_y = max(5.0, fh * 0.08)
+    if not (eyes_y - margin_y <= ny <= mouth_y + margin_y):
+        return False, f"invalid_vertical_order (eyes_y={eyes_y:.1f}, nose_y={ny:.1f}, mouth_y={mouth_y:.1f})"
+
+    # 4. Both mouth corners must be below nose (scaled tolerance for camera pitch)
+    mouth_margin = max(3.0, fh * 0.04)
+    if rmy < ny - mouth_margin or lmy < ny - mouth_margin:
+        return False, "mouth_above_nose"
+
+    # 5. Face bounding box aspect ratio
     aspect_ratio = fw / float(fh)
-    if aspect_ratio < 0.45 or aspect_ratio > 1.35:
+    if aspect_ratio < 0.40 or aspect_ratio > 1.45:
         return False, f"unnatural_aspect_ratio ({aspect_ratio:.2f})"
 
-    # 6. Bilateral symmetry: Left eye-to-nose vs Right eye-to-nose distance ratio
+    # 6. Bilateral symmetry: Left eye-to-nose vs Right eye-to-nose distance ratio (supports head turns up to 45 deg)
     d_r_nose = np.sqrt((rx - nx) ** 2 + (ry - ny) ** 2)
     d_l_nose = np.sqrt((lx - nx) ** 2 + (ly - ny) ** 2)
     if d_r_nose > 1.0 and d_l_nose > 1.0:
         sym_ratio = d_r_nose / d_l_nose
-        if sym_ratio < 0.32 or sym_ratio > 3.1:
+        if sym_ratio < 0.20 or sym_ratio > 4.8:
             return False, f"asymmetrical_landmarks (ratio={sym_ratio:.2f})"
 
     return True, f"valid_human_face (eye_dist={eye_dist:.1f}px, ratio={aspect_ratio:.2f})"
@@ -221,18 +223,18 @@ def is_photo_or_spoof(
     skin_mask = (cr >= 128) & (cr <= 180) & (cb >= 75) & (cb <= 132)
     skin_ratio = float(np.sum(skin_mask)) / float(h * w)
 
-    # If skin chrominance is unnaturally low (e.g. grayscale photo, blueish phone screen, cartoon)
-    if skin_ratio < 0.16:
+    # If skin chrominance is unnaturally low (e.g. pure grayscale or extreme distortion)
+    if skin_ratio < 0.08:
         return True, f"unnatural_skin_chrominance (ratio={skin_ratio:.2f})"
 
     # 2. Contrast & Flatness Check
     gray = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2GRAY)
     gray_std = float(np.std(gray))
-    if gray_std < 10.0:
+    if gray_std < 8.0:
         return True, f"flat_photo_contrast (std={gray_std:.1f})"
 
     # 3. High-frequency Moiré / Screen Grid Analysis via 2D FFT
-    # Phone screens and printed halftones show repetitive periodic spikes in high frequencies
+    # Phone screens show repetitive periodic spikes in high frequencies
     try:
         dft = cv2.dft(np.float32(gray), flags=cv2.DFT_COMPLEX_OUTPUT)
         dft_shift = np.fft.fftshift(dft)
@@ -253,7 +255,7 @@ def is_photo_or_spoof(
         mean_high = np.mean(mag_spec[mask_high]) if np.any(mask_high) else 1.0
 
         moire_ratio = float(mean_high) / max(float(mean_mid), 1e-4)
-        if moire_ratio > 3.2:
+        if moire_ratio > 4.5:
             return True, f"screen_moire_pattern_detected (ratio={moire_ratio:.2f})"
     except Exception as e:
         logger.debug(f"FFT spoof check skipped: {e}")
@@ -414,10 +416,13 @@ def run_yolo_detection(image_np: np.ndarray) -> List[Dict[str, Any]]:
                     score = float(face[-1])
                     landmarks = face[4:14].reshape(5, 2)
 
-                    fx1 = int(max(0, x))
-                    fy1 = int(max(0, y))
-                    fx2 = int(min(w, x + fw))
-                    fy2 = int(min(h, y + fh))
+                    # Add calibrated face margin (12%) to match dataset enrollment geometry
+                    margin_x = int(fw * 0.12)
+                    margin_y = int(fh * 0.12)
+                    fx1 = int(max(0, x - margin_x))
+                    fy1 = int(max(0, y - margin_y))
+                    fx2 = int(min(w, x + fw + margin_x))
+                    fy2 = int(min(h, y + fh + margin_y))
 
                     if (fx2 - fx1) < 24 or (fy2 - fy1) < 24:
                         continue

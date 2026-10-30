@@ -1,5 +1,5 @@
 import os
-from typing import List, Union
+from typing import List, Union, Optional
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -38,10 +38,14 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 465
     SMTP_USER: str = "thanakornnillamai@gmail.com"
     SMTP_PASSWORD: str = "khlcoalqwizlhrlg"
+    NOTIFICATION_RECIPIENT_EMAIL: Optional[str] = None
     ALERT_COOLDOWN_SECONDS: int = 180  # 3 minutes (3 นาที)
     EMAIL_ALERT_COOLDOWN_SECONDS: int = 180  # 3 minutes (3 นาที)
     EMAIL_ALERT_CATEGORIES: Union[List[str], str] = ["stranger"]
 
+    # Face Recognition Metric Matching Threshold (MobileNetV3 576-dim L2 cosine similarity)
+    # Empirically calibrated: same person >= 0.80 - 0.95, different/strangers <= 0.68
+    FACE_MATCH_THRESHOLD: float = 0.75
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
@@ -59,7 +63,7 @@ class Settings(BaseSettings):
             return [i.strip().lower() for i in v.split(",") if i.strip()]
         elif isinstance(v, list):
             return [str(i).strip().lower() for i in v]
-        return ["delivery", "stranger"]
+        return ["stranger"]
 
     model_config = SettingsConfigDict(
         env_file=".env",

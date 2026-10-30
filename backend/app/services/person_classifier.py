@@ -144,45 +144,43 @@ def classify_and_record(
         else:
             # 1. เปรียบเทียบ Deep Learning Face Embedding กับฐานข้อมูลบุคคลที่เทรนไว้
             is_face_crop = det.get("is_real_face", True) or det.get("class_name") == "face"
-            face_match, match_score = match_face_embedding(crop, threshold=0.55, is_full_person_crop=(not is_face_crop))
+            match_thresh = getattr(settings, "FACE_MATCH_THRESHOLD", 0.75)
+            face_match, match_score = match_face_embedding(
+                crop,
+                threshold=match_thresh,
+                is_full_person_crop=(not is_face_crop),
+                auto_crop_face=(not is_face_crop),
+                landmarks=det.get("landmarks"),
+                full_image=image_np,
+                box=det.get("box"),
+            )
             if face_match:
                 matched_pid = face_match.get("person_id")
-                if matched_pid:
-                    matched_person = next((p for p in registered_persons if p.id == matched_pid), None)
-                category = face_match.get("category", "household")
-                person_name = face_match.get("name", "บุคคลที่ลงทะเบียน")
-                default_role = "Family" if category == "household" else "Neighbor" if category == "neighbor" else "Friend" if category == "friend" else "Delivery" if category == "delivery" else "Other"
-                role = face_match.get("role") or (matched_person.role if matched_person else default_role)
-                confidence = round(max(confidence, match_score * 100), 1)
-            else:
-                # 2. ตรวจสอบ Heuristic เครื่องแบบขนส่งพัสดุ โดยดูบริเวณเสื้อผ้าใต้ใบหน้า
-                chest_y1 = min(h - 1, y2)
-                chest_y2 = min(h, y2 + int((y2 - y1) * 1.5))
-                clothing_crop = image_np[chest_y1:chest_y2, max(0, x1 - int((x2 - x1) * 0.2)):min(w, x2 + int((x2 - x1) * 0.2))]
-                color_feats = analyze_colors_and_features(clothing_crop if clothing_crop.size > 0 else crop)
-                r = color_feats.get("r", 128)
-                g = color_feats.get("g", 128)
-                b = color_feats.get("b", 128)
-
-                is_flash_yellow = (r > 160 and g > 150 and b < 100)
-                is_kerry_orange = (r > 180 and g > 80 and b < 80)
-                is_grab_green = (g > 140 and r < 110 and b < 110)
-
-                if (is_flash_yellow or is_kerry_orange or is_grab_green) and delivery_members:
-                    category = "delivery"
-                    if is_flash_yellow:
-                        matched_person = next((p for p in delivery_members if "Flash" in p.name or "Flash" in p.department), delivery_members[0])
-                    elif is_kerry_orange:
-                        matched_person = next((p for p in delivery_members if "Kerry" in p.name or "Kerry" in p.department), delivery_members[0])
-                    else:
-                        matched_person = next((p for p in delivery_members if "Grab" in p.name or "Grab" in p.department), delivery_members[0])
+                matched_person = next((p for p in registered_persons if p.id == matched_pid), None) if matched_pid else None
+                if matched_person:
+                    category = matched_person.category or face_match.get("category", "household")
                     person_name = matched_person.name
-                    role = matched_person.role
+                    default_role = (
+                        "Family" if category == "household"
+                        else "Neighbor" if category == "neighbor"
+                        else "Friend" if category == "friend"
+                        else "Delivery" if category == "delivery"
+                        else "Other"
+                    )
+                    role = face_match.get("role") or matched_person.role or default_role
+                    confidence = round(max(confidence, match_score * 100), 1)
                 else:
-                    # บุคคลที่ยังไม่มีในฐานข้อมูล (Stranger)
+                    # ข้อมูลบุคคลไม่อยู่ในฐานข้อมูลที่ Active แล้ว -> ถือเป็นคนแปลกหน้า (Stranger)
                     category = "stranger"
                     person_name = f"บุคคลแปลกหน้า #{idx + 1}"
                     role = "Stranger"
+                    matched_person = None
+            else:
+                # 2. บุคคลที่ยังไม่ได้เทรนหรือไม่ตรงกับฐานข้อมูลใบหน้า -> เป็นคนแปลกหน้า (Stranger) เสมอ
+                category = "stranger"
+                person_name = f"บุคคลแปลกหน้า #{idx + 1}"
+                role = "Stranger"
+                matched_person = None
 
         # Determine Alert triggering rules
         alert_created = False

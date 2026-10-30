@@ -17,6 +17,7 @@ from torchvision.models import mobilenet_v3_small, MobileNet_V3_Small_Weights
 from PIL import Image, ImageOps
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.person import Person
 
 logger = logging.getLogger("face_embedding_service")
@@ -205,12 +206,113 @@ def parse_image_input(image_input: Union[str, np.ndarray, Image.Image]) -> Optio
     return None
 
 
+def enhance_face_contrast(img_bgr: np.ndarray) -> np.ndarray:
+    """
+    Normalizes lighting across facial contours using Contrast Limited
+    Adaptive Histogram Equalization (CLAHE) on the Luminance channel.
+    Eliminates shadows and balances harsh outdoor/backlight contrasts.
+    """
+    try:
+        lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l_eq = clahe.apply(l)
+        enhanced_lab = cv2.merge((l_eq, a, b))
+        return cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
+    except Exception:
+        return img_bgr
+
+
+def align_face_canonical(
+    img_bgr: np.ndarray,
+    landmarks: Union[np.ndarray, Dict[str, Any], List[Any]],
+    box: Optional[Union[List[float], np.ndarray]] = None,
+    desired_size: Tuple[int, int] = (224, 224),
+) -> Optional[np.ndarray]:
+    """
+    Performs precise affine transformation aligning the two eyes horizontally
+    at a standardized scale and eye center in canonical 224x224 space.
+    Neutralizes head tilts, camera pitch/yaw, and scale discrepancies.
+    Uses bounding box dimensions to constrain scale, avoiding foreshortening distortion.
+    """
+    try:
+        if landmarks is None:
+            return None
+
+        if isinstance(landmarks, dict):
+            r_eye = landmarks.get("right_eye")
+            l_eye = landmarks.get("left_eye")
+        elif isinstance(landmarks, (list, np.ndarray)) and len(landmarks) >= 2:
+            r_eye = landmarks[0]
+            l_eye = landmarks[1]
+        else:
+            return None
+
+        if r_eye is None or l_eye is None:
+            return None
+
+        rx, ry = float(r_eye[0]), float(r_eye[1])
+        lx, ly = float(l_eye[0]), float(l_eye[1])
+
+        dx = lx - rx
+        dy = ly - ry
+        dist = np.sqrt(dx ** 2 + dy ** 2)
+
+        # Angle in degrees (rotate so eyes are horizontal, bounded to avoid inverted orientation)
+        angle = float(np.degrees(np.arctan2(dy, dx)))
+        if abs(angle) > 45.0:
+            angle = float(np.clip(angle, -45.0, 45.0))
+
+        # Eye center point
+        eye_cx = (rx + lx) / 2.0
+        eye_cy = (ry + ly) / 2.0
+
+        dw, dh = desired_size
+        desired_eye_dist = dw * 0.35  # ~78px in 224x224
+
+        # Calculate scale safely using face bounding box if provided
+        if box is not None and len(box) >= 4:
+            # Supports both [fx, fy, fw, fh] and [x1, y1, x2, y2]
+            b0, b1, b2, b3 = float(box[0]), float(box[1]), float(box[2]), float(box[3])
+            fw = (b2 - b0) if (b2 > b0 and b3 > b1 and b2 > 100 and b0 < 100) else b2
+            fh = (b3 - b1) if (b2 > b0 and b3 > b1 and b3 > 100 and b1 < 100) else b3
+            fw = max(10.0, fw)
+            fh = max(10.0, fh)
+            scale_box = (dw * 0.65) / max(fw, fh * 0.75)
+            if dist >= 14.0:
+                scale_eye = desired_eye_dist / dist
+                scale = float(np.clip(scale_eye, scale_box * 0.75, scale_box * 1.30))
+            else:
+                scale = scale_box
+        else:
+            scale = float(np.clip(desired_eye_dist / max(dist, 10.0), 0.5, 2.5))
+
+        desired_cx = dw * 0.50
+        desired_cy = dh * 0.38
+
+        M = cv2.getRotationMatrix2D((eye_cx, eye_cy), angle, scale)
+        M[0, 2] += (desired_cx - eye_cx)
+        M[1, 2] += (desired_cy - eye_cy)
+
+        aligned = cv2.warpAffine(
+            img_bgr,
+            M,
+            desired_size,
+            flags=cv2.INTER_LANCZOS4,
+            borderMode=cv2.BORDER_REFLECT,
+        )
+        return aligned
+    except Exception as e:
+        logger.debug(f"Landmark alignment fallback: {e}")
+        return None
+
+
 def crop_face_region(pil_img: Image.Image) -> Image.Image:
     """
-    ตัดครอบบริเวณใบหน้าคนโดยเฉพาะ:
-    1. ใช้ YuNet Deep Learning Face Detector เพื่อหาตำแหน่งใบหน้าคนและตัด crop แบบแม่นยำสูง (พร้อม margin 15-20%)
-    2. หากเป็นรูปขนาดใหญ่ (เช่น รูปจากเว็บแคม/มือถือ/ESP32 1280x720 หรือ 640x480) และ YuNet ไม่พบใบหน้า จะใช้ Heuristic สัดส่วนคนส่วนบน/ตรงกลางเป็น Fallback
-    3. หากเป็นรูปขนาดเล็กที่ตัดหน้ามาแล้วอยู่แล้ว ให้ใช้รูปเดิม
+    ตัดครอบและจัดระนาบใบหน้าคนโดยเฉพาะ (Facial Alignment & Normalization):
+    1. ใช้ YuNet Deep Learning Face Detector หาตำแหน่งใบหน้าและ 5 Facial Landmarks
+    2. ทำ Affine Transformation จัดแนวระดับสายตาให้อยู่ในระนาบขนานแนวนอน (Canonical Pose)
+    3. หากไม่พบใบหน้า จะใช้ Fallback ตามสัดส่วนภาพ
     """
     try:
         from app.services.yolo_service import get_yunet_detector
@@ -224,6 +326,14 @@ def crop_face_region(pil_img: Image.Image) -> Image.Image:
             if faces is not None and len(faces) > 0:
                 best_face = max(faces, key=lambda f: float(f[-1]))
                 fx, fy, fw, fh = best_face[:4].astype(int)
+                landmarks = best_face[4:14].reshape(5, 2)
+
+                # 1. จัดระนาบใบหน้าตามตำแหน่งดวงตา (Canonical 5-point Affine Alignment)
+                aligned_bgr = align_face_canonical(img_bgr, landmarks, box=[fx, fy, fw, fh], desired_size=(224, 224))
+                if aligned_bgr is not None:
+                    return Image.fromarray(cv2.cvtColor(aligned_bgr, cv2.COLOR_BGR2RGB))
+
+                # 2. Fallback: ตัดตามกรอบกล่องใบหน้าพร้อม Margin 18%
                 margin_x = int(fw * 0.18)
                 margin_y = int(fh * 0.18)
                 crop_x1 = max(0, fx - margin_x)
@@ -231,7 +341,8 @@ def crop_face_region(pil_img: Image.Image) -> Image.Image:
                 crop_x2 = min(w, fx + fw + margin_x)
                 crop_y2 = min(h, fy + fh + margin_y)
                 if crop_x2 > crop_x1 + 20 and crop_y2 > crop_y1 + 20:
-                    return pil_img.crop((crop_x1, crop_y1, crop_x2, crop_y2))
+                    cropped = pil_img.crop((crop_x1, crop_y1, crop_x2, crop_y2))
+                    return cropped
     except Exception as e:
         logger.debug(f"Face crop via YuNet skipped: {e}")
 
@@ -247,7 +358,6 @@ def crop_face_region(pil_img: Image.Image) -> Image.Image:
     return pil_img
 
 
-
 # -------------------------------------------------------------
 # Deep Learning Embedding Extraction & Augmentation
 # -------------------------------------------------------------
@@ -259,9 +369,10 @@ def extract_face_embedding(
     """
     สกัด Deep Learning Face Embedding (576-dim L2-normalized vector) จากภาพใบหน้า:
     1. แปลงภาพเป็น RGB PIL Image
-    2. ตัดครอบเฉพาะบริเวณใบหน้า/ศีรษะ (ถ้าเป็นกล่องคนเต็มตัว หรือรูปขนาดใหญ่ที่มีฉากหลัง)
-    3. Normalize และส่งเข้า MobileNetV3 Small Feature Extractor
-    4. Adaptive Average Pooling และ L2-Normalization
+    2. ตัดครอบและจัดระนาบใบหน้า (Facial Landmark Alignment)
+    3. ปรับสมดุลแสงเงาด้วย CLAHE Contrast Enhancement แบบ Single-pass
+    4. Normalize และส่งเข้า MobileNetV3 Small Feature Extractor
+    5. Adaptive Average Pooling และ L2-Normalization
     """
     try:
         pil_img = parse_image_input(image_input)
@@ -273,6 +384,11 @@ def extract_face_embedding(
         needs_crop = is_full_person_crop or (auto_crop_face and (w > 260 or h > 260 or abs(w - h) > 60))
         if needs_crop:
             pil_img = crop_face_region(pil_img)
+
+        # ปรับปรุงแสงเงา CLAHE อย่างสม่ำเสมอเพียงรอบเดียว (Single-pass illumination normalization)
+        img_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+        enhanced_bgr = enhance_face_contrast(img_bgr)
+        pil_img = Image.fromarray(cv2.cvtColor(enhanced_bgr, cv2.COLOR_BGR2RGB))
 
         model, preprocess = get_feature_extractor()
         tensor = preprocess(pil_img).unsqueeze(0)  # Shape: (1, 3, 224, 224)
@@ -362,6 +478,45 @@ def save_person_dataset_images(person_id: int, image_sources: List[str]) -> List
     return saved_paths
 
 
+def select_diverse_exemplars(vectors: List[np.ndarray], max_exemplars: int = 6) -> List[List[float]]:
+    """
+    คัดเลือกชุดเวกเตอร์แม่แบบ (Exemplar Vectors) ที่มีความหลากหลายของมุมมองและสีหน้าสูงสุด
+    ด้วยอัลกอริทึม Greedy Furthest-Point Sampling ครอบคลุมท่าทาง มุมหัน และแสงเงา
+    """
+    if not vectors:
+        return []
+    if len(vectors) <= max_exemplars:
+        return [v.tolist() for v in vectors]
+
+    mean_vec = np.mean(vectors, axis=0)
+    norm = np.linalg.norm(mean_vec)
+    if norm > 1e-6:
+        mean_vec = mean_vec / norm
+
+    # เวกเตอร์ที่ 1: เวกเตอร์ที่ใกล้เคียงค่าเฉลี่ยที่สุด
+    sims_to_mean = [float(np.dot(v, mean_vec)) for v in vectors]
+    selected_indices = [int(np.argmax(sims_to_mean))]
+
+    while len(selected_indices) < max_exemplars:
+        best_candidate = -1
+        min_max_sim = 1e9
+
+        for i in range(len(vectors)):
+            if i in selected_indices:
+                continue
+            max_sim_to_selected = max(float(np.dot(vectors[i], vectors[s])) for s in selected_indices)
+            if max_sim_to_selected < min_max_sim:
+                min_max_sim = max_sim_to_selected
+                best_candidate = i
+
+        if best_candidate >= 0:
+            selected_indices.append(best_candidate)
+        else:
+            break
+
+    return [vectors[idx].tolist() for idx in selected_indices]
+
+
 # -------------------------------------------------------------
 # Face Training & Storage Operations
 # -------------------------------------------------------------
@@ -376,8 +531,8 @@ def save_person_embeddings(
     """
     สกัดและบันทึกชุด Feature Embedding ของบุคคลใหม่ลงใน face_embeddings.json:
     - บันทึกไฟล์ภาพต้นฉบับลง data/datasets/person_<id>/
-    - สกัด Feature Vector พร้อม Data Augmentation (กลับด้านแนวนอนเพื่อจำลองมุมหัน)
-    - คำนวณเวกเตอร์เฉลี่ย (Mean Centroid Embedding) และ L2-Normalize
+    - สกัด Feature Vector พร้อม Data Augmentation และ Canonical Alignment
+    - คำนวณ Mean Centroid Embedding และชุดเวกเตอร์ตัวแทนหลากหลายมุมมอง (Diverse Exemplars)
     """
     if not image_sources:
         logger.info(f"No image sources provided for person {person_id} ({name}). Skipping embedding creation.")
@@ -387,7 +542,7 @@ def save_person_embeddings(
     if save_to_dataset:
         save_person_dataset_images(person_id, image_sources)
 
-    # 2. สกัด Feature Vectors พร้อม Augmentation (ตัดครอบเฉพาะใบหน้าคน)
+    # 2. สกัด Feature Vectors พร้อม Augmentation (ตัดครอบและจัดระนาบใบหน้า)
     valid_embeddings = []
     for src in image_sources:
         if not src or not str(src).strip():
@@ -406,6 +561,9 @@ def save_person_embeddings(
         final_embedding = (mean_vec / norm).tolist()
     else:
         final_embedding = mean_vec.tolist()
+
+    # คัดเลือกเวกเตอร์แม่แบบหลากหลายมุมมอง (Multi-Template Exemplars)
+    exemplars = select_diverse_exemplars(valid_embeddings, max_exemplars=6)
 
     # 4. คำนวณ Intra-class Consistency (ความสม่ำเสมอของภาพใบหน้าบุคคลนี้)
     if len(valid_embeddings) > 1:
@@ -429,6 +587,7 @@ def save_person_embeddings(
         "sample_count": len(image_sources),
         "augmented_samples": len(valid_embeddings),
         "embedding": final_embedding,
+        "exemplars": exemplars,
         "accuracy": accuracy,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -615,6 +774,9 @@ def retrain_all_registered_persons(db: Session) -> Dict[str, Any]:
         person.images_count = max(1, len(image_files))
         person.face_embedding = f"vector_dim_576_samples_{len(person_vectors)}"
 
+        # คัดเลือกเวกเตอร์แม่แบบหลากหลายมุมมอง (Multi-Template Exemplars)
+        exemplars = select_diverse_exemplars(person_vectors, max_exemplars=6)
+
         # บันทึกลงใน Dictionary สำหรับ face_embeddings.json
         updated_embeddings_db["persons"][person_key] = {
             "person_id": pid,
@@ -624,6 +786,7 @@ def retrain_all_registered_persons(db: Session) -> Dict[str, Any]:
             "sample_count": len(image_files),
             "augmented_samples": len(person_vectors),
             "embedding": final_embedding,
+            "exemplars": exemplars,
             "accuracy": person_acc,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -681,18 +844,61 @@ def get_training_status(db: Optional[Session] = None) -> Dict[str, Any]:
 # -------------------------------------------------------------
 def match_face_embedding(
     crop_input: Union[str, np.ndarray, Image.Image],
-    threshold: float = 0.55,
+    threshold: Optional[float] = None,
     is_full_person_crop: bool = True,
+    auto_crop_face: bool = True,
+    landmarks: Optional[Any] = None,
+    full_image: Optional[np.ndarray] = None,
+    box: Optional[Any] = None,
 ) -> Tuple[Optional[Dict[str, Any]], float]:
     """
-    เปรียบเทียบภาพใบหน้า/ส่วนหัวจากการตรวจจับ YOLO เข้ากับฐานข้อมูล Face Embeddings:
-    - คำนวณ Cosine Similarity: dot_product(A, B)
-    - ส่งคืนบุคคลที่มีความคล้ายคลึงสูงสุดหาก score >= threshold
-    - ส่งคืน (None, best_score) หากไม่มีบุคคลใดตรงกับ threshold
+    เปรียบเทียบภาพใบหน้าจากการตรวจจับเข้ากับฐานข้อมูล Face Embeddings:
+    1. จัดระนาบศีรษะและดวงตาด้วย Canonical Affine Transformation (เมื่อมี landmarks)
+    2. ทำ Test-Time Augmentation (TTA: เฉลี่ยเวกเตอร์ภาพจริง + กระจกสะท้อน)
+    3. คำนวณ Cosine Similarity เทียบกับทั้ง Centroid Vector และ Multi-Template Exemplars
+    4. ใช้ค่า Threshold ที่ปรับเทียบอย่างแม่นยำ (default: 0.75 สำหรับ MobileNetV3 576-dim L2)
+    5. ส่งคืนบุคคลที่มีความคล้ายคลึงสูงสุดหาก score >= threshold
+    6. ส่งคืน (None, best_score) หากไม่มีบุคคลใดตรงกับ threshold (คนแปลกหน้า / Stranger)
     """
-    query_emb = extract_face_embedding(crop_input, is_full_person_crop=is_full_person_crop)
+    effective_threshold = threshold if threshold is not None else getattr(settings, "FACE_MATCH_THRESHOLD", 0.75)
+
+    query_pil = None
+    # ขั้นตอนที่ 1: ตรวจสอบและทำ Canonical Landmark Alignment จาก full_image
+    if landmarks is not None and full_image is not None and isinstance(full_image, np.ndarray):
+        try:
+            full_bgr = full_image if full_image.shape[2] == 3 else cv2.cvtColor(full_image, cv2.COLOR_RGB2BGR)
+            aligned_bgr = align_face_canonical(full_bgr, landmarks, box=box)
+            if aligned_bgr is not None:
+                query_pil = Image.fromarray(cv2.cvtColor(aligned_bgr, cv2.COLOR_BGR2RGB))
+        except Exception as e:
+            logger.debug(f"Direct landmark alignment skipped in matching: {e}")
+
+    # ขั้นตอนที่ 2: สกัด Query Face Embedding
+    if query_pil is not None:
+        query_emb = extract_face_embedding(query_pil, is_full_person_crop=False, auto_crop_face=False)
+    else:
+        query_pil = parse_image_input(crop_input)
+        query_emb = extract_face_embedding(
+            crop_input,
+            is_full_person_crop=is_full_person_crop,
+            auto_crop_face=auto_crop_face,
+        )
+
     if query_emb is None:
         return None, 0.0
+
+    # ขั้นตอนที่ 3: Test-Time Augmentation (TTA) เพื่อความคงเส้นคงวาและลดการบิดเบือนจากมุมกล้อง
+    if query_pil is not None:
+        try:
+            query_mirrored = ImageOps.mirror(query_pil)
+            mirror_emb = extract_face_embedding(query_mirrored, is_full_person_crop=False, auto_crop_face=False)
+            if mirror_emb is not None:
+                combined_vec = query_emb + mirror_emb
+                c_norm = np.linalg.norm(combined_vec)
+                if c_norm > 1e-6:
+                    query_emb = (combined_vec / c_norm).astype(np.float32)
+        except Exception as tta_e:
+            logger.debug(f"TTA embedding augmentation skipped: {tta_e}")
 
     db = load_embeddings_db()
     registered_persons = db.get("persons", {})
@@ -703,17 +909,30 @@ def match_face_embedding(
     best_match = None
     best_score = -1.0
 
+    # ขั้นตอนที่ 4: เปรียบเทียบกับฐานข้อมูล (ทั้ง Centroid และ Multi-Template Exemplars)
     for pid, pdata in registered_persons.items():
         person_emb = np.array(pdata.get("embedding", []), dtype=np.float32)
         if len(person_emb) != len(query_emb):
             continue
 
-        similarity = float(np.dot(query_emb, person_emb))
-        if similarity > best_score:
-            best_score = similarity
+        # 4.1 ความคล้ายคลึงกับ Centroid Vector หลัก
+        centroid_sim = float(np.dot(query_emb, person_emb))
+        person_best_sim = centroid_sim
+
+        # 4.2 ความคล้ายคลึงกับ Exemplars (หลากหลายมุมมอง/แสงเงา)
+        exemplars = pdata.get("exemplars", [])
+        for ex in exemplars:
+            ex_vec = np.array(ex, dtype=np.float32)
+            if len(ex_vec) == len(query_emb):
+                sim_ex = float(np.dot(query_emb, ex_vec))
+                if sim_ex > person_best_sim:
+                    person_best_sim = sim_ex
+
+        if person_best_sim > best_score:
+            best_score = person_best_sim
             best_match = pdata
 
-    if best_match and best_score >= threshold:
+    if best_match and best_score >= effective_threshold:
         return best_match, round(best_score, 4)
 
     return None, round(max(0.0, best_score), 4)
